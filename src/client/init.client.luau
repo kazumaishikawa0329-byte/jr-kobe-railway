@@ -1,1 +1,1 @@
-print("Hello world, from client!ishikawa_family ver2")
+print("Hello world, from client!ishikawa_family branch")
