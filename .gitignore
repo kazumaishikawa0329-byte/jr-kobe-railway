@@ -1,8 +1,33 @@
-# Project place file
-/project.rbxlx
+# Roblox place files
+# RojoでLuaを管理するため、rbxl/rbxlx本体はGit管理しない
+*.rbxl
+*.rbxlx
 
 # Roblox Studio lock files
-/*.rbxlx.lock
-/*.rbxl.lock
+*.rbxl.lock
+*.rbxlx.lock
 
+# Rojo generated files
 sourcemap.json
+
+# Node / npm
+node_modules/
+package-lock.json
+
+# Logs
+*.log
+
+# OS
+Thumbs.db
+.DS_Store
+
+# VSCode
+.vscode/
+
+# Claude Code
+# CLAUDE.mdは開発ルールなので管理してOK
+.claude/
+
+# Temporary files
+*.tmp
+*.bak
