@@ -13,11 +13,14 @@ local folder = Instance.new("Folder")
 folder.Name = FOLDER_NAME
 folder.Parent = Workspace
 
+-- 全オブジェクトをリスポーン地点（原点）から X方向に離す
+local WORLD_OFFSET = Vector3.new(40, 0, 0)
+
 local function makePart(name, size, position, color)
 	local part = Instance.new("Part")
 	part.Name = name
 	part.Size = size
-	part.Position = position
+	part.Position = position + WORLD_OFFSET
 	part.Anchored = true
 	part.Color = color
 	part.Parent = folder
@@ -25,7 +28,7 @@ local function makePart(name, size, position, color)
 end
 
 -- ========== 線路 ==========
-local RAIL_LENGTH  = 100
+local RAIL_LENGTH  = 2000   -- 20倍（旧: 100）
 local RAIL_WIDTH   = 0.3
 local RAIL_HEIGHT  = 0.3
 local TRACK_GAUGE  = 1.5   -- 中心からレールまでの距離（片側）
@@ -42,11 +45,11 @@ makePart("RailRight",
 	RAIL_COLOR)
 
 -- ========== 枕木 ==========
-local SLEEPER_SPAN     = TRACK_GAUGE * 2 + 1.0   -- レールより少し広く
+local SLEEPER_SPAN     = TRACK_GAUGE * 2 + 1.0
 local SLEEPER_HEIGHT   = 0.2
 local SLEEPER_DEPTH    = 0.5
 local SLEEPER_INTERVAL = 2.5
-local SLEEPER_COUNT    = 20
+local SLEEPER_COUNT    = math.floor(RAIL_LENGTH / SLEEPER_INTERVAL)   -- 自動計算
 local SLEEPER_COLOR    = Color3.fromRGB(90, 60, 30)
 
 for i = 1, SLEEPER_COUNT do
@@ -61,7 +64,7 @@ end
 local PLATFORM_LENGTH = 30
 local PLATFORM_WIDTH  = 6
 local PLATFORM_HEIGHT = 1.2
-local PLATFORM_X      = TRACK_GAUGE + 1 + PLATFORM_WIDTH / 2   -- レール右側
+local PLATFORM_X      = TRACK_GAUGE + 1 + PLATFORM_WIDTH / 2
 local PLATFORM_COLOR  = Color3.fromRGB(210, 210, 200)
 
 makePart("Platform",
@@ -70,7 +73,6 @@ makePart("Platform",
 	PLATFORM_COLOR)
 
 -- ========== 駅名看板 ==========
--- ホームの線路側端（X = TRACK_GAUGE + 1 = 2.5）に立てる
 local SIGN_THICKNESS = 0.3
 local SIGN_HEIGHT    = 1.5
 local SIGN_SPAN      = 5.0
@@ -83,7 +85,6 @@ local sign = makePart("StationSign",
 	Vector3.new(SIGN_X, SIGN_Y, 0),
 	SIGN_COLOR)
 
--- SurfaceGui でテキストを表示（Left面 = レール側）
 local gui = Instance.new("SurfaceGui")
 gui.Name = "StationNameGui"
 gui.Face = Enum.NormalId.Left
