@@ -125,7 +125,7 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
 
         local dp = mkP(car, "Dest"..tag, Vector3.new(CWID*0.24, 0.45, tk+0.06),
             Vector3.new(0, CBOT+CHGT*0.94, fz+dirZ*tk), C.dest)
-        addText(dp, face, "快速　神戸", Color3.fromRGB(255, 255, 255))
+        addText(dp, face, "新快速　姫路", Color3.fromRGB(255, 255, 255))
 
         for _, s in ipairs({ -1, 1 }) do
             local hx = s * CWID * 0.31
