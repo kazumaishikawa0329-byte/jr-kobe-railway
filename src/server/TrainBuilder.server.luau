@@ -198,37 +198,40 @@ local function buildControlPanel()
     cp.Name   = "TrainKiosk"
     cp.Parent = rwFolder
 
-    -- スポーン地点(X=0)とホーム(X=40+)の中間、絶対 X=12
-    -- ローカル座標: X = 12 - 40 = -28
-    local kx = -28
+    -- スポーン地点(X=0)から X+ 方向に 8 stud の位置、絶対 X=8
+    -- ローカル座標: X = 8 - 40 = -32
+    local kx = -32
     local kz = 0
 
     -- キオスク本体
     mkP(cp, "Body", Vector3.new(2.4, 2.4, 0.9), Vector3.new(kx, 1.2, kz), C.kiosk)
 
-    -- 上部 Neon（遠くから視認できるよう光らせる）
-    local top = mkP(cp, "Top", Vector3.new(2.6, 0.45, 1.1),
+    -- 上部 Neon
+    mkP(cp, "Top", Vector3.new(2.6, 0.45, 1.1),
         Vector3.new(kx, 2.625, kz), C.kioskTop, Enum.Material.Neon)
 
-    -- キオスクタイトル（BillboardGui、遠くから見える高さに配置）
+    -- ビーコンポール（高さ15、Neon で全方向から視認）
+    local pole = mkP(cp, "Beacon", Vector3.new(0.7, 15, 0.7),
+        Vector3.new(kx, 10, kz), C.kioskTop, Enum.Material.Neon)
+
+    -- ポール頂部のBillboardGui（AlwaysOnTop で遠くからでも表示）
     local bbg = Instance.new("BillboardGui")
-    bbg.Size        = UDim2.fromOffset(210, 54)
-    bbg.StudsOffset = Vector3.new(0, 2.2, 0)
-    bbg.AlwaysOnTop = false
-    bbg.Parent      = top
+    bbg.Size        = UDim2.fromOffset(260, 64)
+    bbg.StudsOffset = Vector3.new(0, 8.5, 0)
+    bbg.AlwaysOnTop = true
+    bbg.Parent      = pole
     local bbl = Instance.new("TextLabel")
     bbl.Size                   = UDim2.fromScale(1, 1)
     bbl.BackgroundColor3       = Color3.fromRGB(0, 50, 120)
     bbl.BackgroundTransparency = 0.08
-    bbl.Text                   = "列車コントロール"
+    bbl.Text                   = "🚉 列車コントロール"
     bbl.TextColor3             = Color3.fromRGB(255, 255, 255)
-    bbl.TextSize               = 16
+    bbl.TextSize               = 17
     bbl.Font                   = Enum.Font.GothamBold
     bbl.Parent                 = bbg
     local bbcr = Instance.new("UICorner"); bbcr.CornerRadius = UDim.new(0, 5); bbcr.Parent = bbl
 
-    -- キオスク正面はプレイヤー接近方向（Left = -X 面）
-    -- ボタン類はキオスク本体から 0.16 stud 突出させて z-fighting を防ぐ
+    -- キオスク正面はスポーン側（-X 面）、ボタンは 0.08 外側に突出
     local FACE = Enum.NormalId.Left
     local bx   = kx - 1.28   -- 本体左端 (kx-1.2) より 0.08 外側
 
