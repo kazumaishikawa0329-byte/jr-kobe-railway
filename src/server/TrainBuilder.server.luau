@@ -162,9 +162,24 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         mkP(car, "Shield"..tag,  Vector3.new(CWID*0.58, CHGT*0.33, tk+0.1),
             Vector3.new(0, CBOT+CHGT*0.71, fz+dirZ*tk), C.window)
 
-        local dp = mkP(car, "Dest"..tag, Vector3.new(CWID*0.24, 0.45, tk+0.06),
-            Vector3.new(0, CBOT+CHGT*0.94, fz+dirZ*tk), C.dest)
-        addText(dp, face, "新快速　姫路", Color3.fromRGB(255, 255, 255))
+        -- 正面行先表示（2段LED：種別＋行先）
+        local dp = mkP(car, "Dest"..tag, Vector3.new(CWID*0.55, 1.1, tk+0.06),
+            Vector3.new(0, CBOT+CHGT*0.62, fz+dirZ*tk), C.dest)
+        local dpSg = Instance.new("SurfaceGui"); dpSg.Face = face; dpSg.Parent = dp
+        local dpKF = Instance.new("Frame")
+        dpKF.Size = UDim2.new(1,0,0.42,0); dpKF.BackgroundColor3 = Color3.fromRGB(0,60,160)
+        dpKF.BorderSizePixel = 0; dpKF.Parent = dpSg
+        local dpKL = Instance.new("TextLabel")
+        dpKL.Size = UDim2.fromScale(1,1); dpKL.BackgroundTransparency = 1
+        dpKL.Text = "新快速"; dpKL.TextColor3 = Color3.fromRGB(255,255,255)
+        dpKL.TextScaled = true; dpKL.Font = Enum.Font.GothamBold; dpKL.Parent = dpKF
+        local dpDF = Instance.new("Frame")
+        dpDF.Size = UDim2.new(1,0,0.58,0); dpDF.Position = UDim2.new(0,0,0.42,0)
+        dpDF.BackgroundColor3 = Color3.fromRGB(8,8,8); dpDF.BorderSizePixel = 0; dpDF.Parent = dpSg
+        local dpDL = Instance.new("TextLabel")
+        dpDL.Size = UDim2.fromScale(1,1); dpDL.BackgroundTransparency = 1
+        dpDL.Text = "姫路"; dpDL.TextColor3 = Color3.fromRGB(225,145,0)
+        dpDL.TextScaled = true; dpDL.Font = Enum.Font.GothamBold; dpDL.Parent = dpDF
 
         for _, s in ipairs({ -1, 1 }) do
             local hx = s * CWID * 0.31
@@ -242,30 +257,27 @@ local function buildControlPanel()
     local kx = -32
     local kz = 0
 
-    -- キオスク本体
-    mkP(cp, "Body", Vector3.new(2.4, 2.4, 0.9), Vector3.new(kx, 1.2, kz), C.kiosk)
+    -- キオスク本体（高さ3.0、Y=0〜3.0）
+    mkP(cp, "Body", Vector3.new(2.4, 3.0, 0.9), Vector3.new(kx, 1.5, kz), C.kiosk)
 
-    -- 上部 Neon
-    mkP(cp, "Top", Vector3.new(2.6, 0.45, 1.1),
-        Vector3.new(kx, 2.625, kz), C.kioskTop, Enum.Material.Neon)
+    -- ビーコンポール（高さ5、Neon）
+    local pole = mkP(cp, "Beacon", Vector3.new(0.6, 5, 0.6),
+        Vector3.new(kx, 5.5, kz), C.kioskTop, Enum.Material.Neon)
 
-    -- ビーコンポール（高さ15、Neon で全方向から視認）
-    local pole = mkP(cp, "Beacon", Vector3.new(0.7, 15, 0.7),
-        Vector3.new(kx, 10, kz), C.kioskTop, Enum.Material.Neon)
-
-    -- ポール頂部のBillboardGui（AlwaysOnTop で遠くからでも表示）
+    -- 近くに来たときだけ見えるラベル（MaxDistance=25）
     local bbg = Instance.new("BillboardGui")
-    bbg.Size        = UDim2.fromOffset(260, 64)
-    bbg.StudsOffset = Vector3.new(0, 8.5, 0)
-    bbg.AlwaysOnTop = true
+    bbg.Size        = UDim2.fromOffset(220, 52)
+    bbg.StudsOffset = Vector3.new(0, 3, 0)
+    bbg.AlwaysOnTop = false
+    bbg.MaxDistance = 25
     bbg.Parent      = pole
     local bbl = Instance.new("TextLabel")
     bbl.Size                   = UDim2.fromScale(1, 1)
     bbl.BackgroundColor3       = Color3.fromRGB(0, 50, 120)
-    bbl.BackgroundTransparency = 0.08
-    bbl.Text                   = "🚉 列車コントロール"
+    bbl.BackgroundTransparency = 0.1
+    bbl.Text                   = "列車コントロール"
     bbl.TextColor3             = Color3.fromRGB(255, 255, 255)
-    bbl.TextSize               = 17
+    bbl.TextSize               = 16
     bbl.Font                   = Enum.Font.GothamBold
     bbl.Parent                 = bbg
     local bbcr = Instance.new("UICorner"); bbcr.CornerRadius = UDim.new(0, 5); bbcr.Parent = bbl
@@ -275,30 +287,31 @@ local function buildControlPanel()
     local bx   = kx - 1.28   -- 本体左端 (kx-1.2) より 0.08 外側
 
     -- ステータス表示（上段）
-    local scrPart = mkP(cp, "Screen", Vector3.new(0.16, 0.62, 2.0),
-        Vector3.new(bx, 2.0, kz), C.screen)
+    local scrPart = mkP(cp, "Screen", Vector3.new(0.16, 0.55, 2.0),
+        Vector3.new(bx, 2.72, kz), C.screen)
     statusLabel = addText(scrPart, FACE, "列車: 格納中", Color3.fromRGB(0, 225, 110))
 
-    -- 「→ 神戸駅（テスト）方面」 案内ライン
-    local dirPart = mkP(cp, "DirSign", Vector3.new(0.16, 0.42, 2.0),
-        Vector3.new(bx, 1.46, kz), C.screen)
-    addText(dirPart, FACE, "→ X+ 方向が神戸駅", Color3.fromRGB(255, 220, 70))
-
-    -- 呼び出しボタン（青）
-    local spPart = mkP(cp, "SpawnBtn", Vector3.new(0.16, 0.58, 1.85),
-        Vector3.new(bx, 0.82, kz), C.btnBlue)
-    addText(spPart, FACE, "▶  列車を呼び出す", Color3.fromRGB(255, 255, 255))
+    -- 呼び出しボタン（青）Y=1.8 → 地面から明確に上
+    local spPart = mkP(cp, "SpawnBtn", Vector3.new(0.16, 0.85, 1.9),
+        Vector3.new(bx, 1.8, kz), C.btnBlue)
+    addText(spPart, FACE, "▶ 列車を呼び出す", Color3.fromRGB(255, 255, 255))
     local spCd = Instance.new("ClickDetector")
-    spCd.MaxActivationDistance = 12; spCd.Parent = spPart
-    spCd.MouseClick:Connect(function() buildTrain() end)
+    spCd.MaxActivationDistance = 15; spCd.Parent = spPart
+    spCd.MouseClick:Connect(function()
+        print("[TrainBuilder] 呼び出しボタンが押されました")
+        buildTrain()
+    end)
 
-    -- 格納ボタン（暗色）
-    local stPart = mkP(cp, "StoreBtn", Vector3.new(0.16, 0.58, 1.85),
-        Vector3.new(bx, 0.16, kz), C.btnDark)
-    addText(stPart, FACE, "■  列車を格納する",  Color3.fromRGB(200, 200, 200))
+    -- 格納ボタン（暗色）Y=0.85 → 地面から明確に上
+    local stPart = mkP(cp, "StoreBtn", Vector3.new(0.16, 0.85, 1.9),
+        Vector3.new(bx, 0.85, kz), C.btnDark)
+    addText(stPart, FACE, "■ 列車を格納する", Color3.fromRGB(200, 200, 200))
     local stCd = Instance.new("ClickDetector")
-    stCd.MaxActivationDistance = 12; stCd.Parent = stPart
-    stCd.MouseClick:Connect(function() storeTrain() end)
+    stCd.MaxActivationDistance = 15; stCd.Parent = stPart
+    stCd.MouseClick:Connect(function()
+        print("[TrainBuilder] 格納ボタンが押されました")
+        storeTrain()
+    end)
 end
 
 -- ============================================================
