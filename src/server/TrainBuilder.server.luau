@@ -103,8 +103,9 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
 
     local cy = CBOT + CHGT / 2
 
-    -- 車体・屋根・スカート
-    mkP(car, "Body",      Vector3.new(CWID, CHGT, CLEN),         Vector3.new(0, cy, cz),              C.body)
+    -- 車体・屋根・スカート（車体は内部に入れるよう非コリジョン）
+    local body = mkP(car, "Body",      Vector3.new(CWID, CHGT, CLEN),         Vector3.new(0, cy, cz),              C.body)
+    body.CanCollide = false
     mkP(car, "Roof",      Vector3.new(CWID, 0.55, CLEN),         Vector3.new(0, CBOT+CHGT+0.27, cz),  C.roof)
     mkP(car, "Skirt",     Vector3.new(CWID+0.3, 0.65, CLEN+0.1), Vector3.new(0, CBOT-0.325, cz),      C.skirt)
     mkP(car, "RoofEquip", Vector3.new(1.2, 0.38, 3.0),           Vector3.new(0, CBOT+CHGT+0.47, cz-5),C.skirt)
@@ -228,11 +229,15 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         -- 乗車案内テキスト（Top面に「乗車口」）
         addText(marker, Enum.NormalId.Top, "乗車口 ▲", Color3.fromRGB(0, 0, 0))
 
-        -- DriverSeat（マーカーの少し上）
+        -- DriverSeat（車内・運転台付近）
+        local seatZ = faceZ - dirZ * 2.5   -- 妻面から2.5 stud 内側
         local seat = Instance.new("Seat")
         seat.Name          = "DriverSeat"
         seat.Size          = Vector3.new(1.8, 0.5, 1.8)
-        seat.Position      = Vector3.new(OFFSET.X, 0.85, markerZ)
+        seat.CFrame        = CFrame.lookAt(
+            Vector3.new(OFFSET.X, CBOT + 0.25, seatZ),
+            Vector3.new(OFFSET.X, CBOT + 0.25, seatZ) + Vector3.new(0, 0, dirZ)
+        )
         seat.Anchored      = true
         seat.Color         = C.seat
         seat.TopSurface    = Enum.SurfaceType.Smooth
