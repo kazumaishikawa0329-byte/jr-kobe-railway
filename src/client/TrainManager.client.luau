@@ -1,10 +1,17 @@
 -- 運転席GUI（DriverSeat着席時に表示）
 -- 列車管理はワールド内のClickDetectorパネルで行うため、管理UIは不要
 
-local Players = game:GetService("Players")
+local Players           = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+
+-- 列車制御 RemoteEvents
+local remotes    = ReplicatedStorage:WaitForChild("TrainRemotes")
+local evtSetDir  = remotes:WaitForChild("SetDirection")
+local evtSetCtrl = remotes:WaitForChild("SetControl")
+local evtSpeedUpd = remotes:WaitForChild("SpeedUpdate")
 
 -- ============================================================
 -- 運転席 GUI
@@ -141,8 +148,89 @@ local function makeGauge(labelTxt, valueTxt, posXScale)
     val.Parent                 = f
 end
 
-makeGauge("ブレーキ", "非常制動", 0.11)
-makeGauge("マスコン",  "OFF",     0.73)
+local brakeValLbl  = makeGauge("ブレーキ", "解除", 0.22)
+local masconValLbl = makeGauge("マスコン", "OFF",  0.62)
+
+-- ============================================================
+-- 方向ボタン（前 / 中 / 後）— dash 左端
+-- ============================================================
+local dirPanel = Instance.new("Frame")
+dirPanel.Size                   = UDim2.new(0, 84, 1, -12)
+dirPanel.Position               = UDim2.new(0, 6, 0, 6)
+dirPanel.BackgroundTransparency = 1
+dirPanel.Parent                 = dash
+
+local dirBtnRefs = {}
+for i, lbl in ipairs({"前", "中", "後"}) do
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(1, 0, 0, 52)
+    btn.Position         = UDim2.new(0, 0, 0, (i - 1) * 56)
+    btn.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+    btn.BorderSizePixel  = 0
+    btn.Text             = lbl
+    btn.TextColor3       = Color3.fromRGB(180, 180, 180)
+    btn.TextSize         = 22
+    btn.Font             = Enum.Font.GothamBold
+    btn.Parent           = dirPanel
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = btn
+    dirBtnRefs[lbl] = btn
+    btn.MouseButton1Click:Connect(function()
+        evtSetDir:FireServer(lbl)
+        for _, b in pairs(dirBtnRefs) do
+            b.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
+            b.TextColor3       = Color3.fromRGB(180, 180, 180)
+        end
+        btn.BackgroundColor3 = lbl == "中"
+            and Color3.fromRGB(110, 88, 0)
+            or  Color3.fromRGB(0,   110, 50)
+        btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    end)
+end
+
+-- ============================================================
+-- 制御ボタン（加速 / 加速停止 / ブレーキ / 急ブレーキ）— dash 右端
+-- ============================================================
+local ctrlPanel = Instance.new("Frame")
+ctrlPanel.Size                   = UDim2.new(0, 118, 1, -12)
+ctrlPanel.Position               = UDim2.new(1, -124, 0, 6)
+ctrlPanel.BackgroundTransparency = 1
+ctrlPanel.Parent                 = dash
+
+local ctrlDefs = {
+    { label = "加速",      color = Color3.fromRGB(0,   140, 55)  },
+    { label = "加速停止",  color = Color3.fromRGB(140, 118, 0)   },
+    { label = "ブレーキ",  color = Color3.fromRGB(190, 70,  0)   },
+    { label = "急ブレーキ",color = Color3.fromRGB(160, 15,  15)  },
+}
+for i, def in ipairs(ctrlDefs) do
+    local btn = Instance.new("TextButton")
+    btn.Size             = UDim2.new(1, 0, 0, 42)
+    btn.Position         = UDim2.new(0, 0, 0, (i - 1) * 46)
+    btn.BackgroundColor3 = def.color
+    btn.BorderSizePixel  = 0
+    btn.Text             = def.label
+    btn.TextColor3       = Color3.fromRGB(255, 255, 255)
+    btn.TextSize         = 14
+    btn.Font             = Enum.Font.GothamBold
+    btn.Parent           = ctrlPanel
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
+    btn.MouseButton1Click:Connect(function()
+        evtSetCtrl:FireServer(def.label)
+        masconValLbl.Text = def.label == "加速" and "加速" or "OFF"
+        if def.label == "ブレーキ" then
+            brakeValLbl.Text = "常用制動"
+        elseif def.label == "急ブレーキ" then
+            brakeValLbl.Text = "非常制動"
+        else
+            brakeValLbl.Text = "解除"
+        end
+    end)
+end
+
+-- 速度をサーバーから受信して表示
+evtSpeedUpd.OnClientEvent:Connect(function(speed)
+    speedNum.Text = tostring(speed)
+end)
 
 -- ============================================================
 -- DriverSeat 着席検出

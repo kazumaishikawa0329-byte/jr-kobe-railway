@@ -1,6 +1,8 @@
 -- 223系2000番台 4両編成の生成・管理
 
-local Workspace = game:GetService("Workspace")
+local Workspace         = game:GetService("Workspace")
+local RunService        = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local OFFSET    = Vector3.new(40, 0, 0)   -- RailwayTestBuilder と同一
 local RW_FOLDER = "RailwayTest"
@@ -34,9 +36,26 @@ local C = {
     screen   = Color3.fromRGB(8,   12,  20),
 }
 
+-- 列車制御 RemoteEvent（クライアント接続前に即時作成）
+local remotesFolder = Instance.new("Folder")
+remotesFolder.Name   = "TrainRemotes"
+remotesFolder.Parent = ReplicatedStorage
+local evtSetDir   = Instance.new("RemoteEvent"); evtSetDir.Name   = "SetDirection"; evtSetDir.Parent = remotesFolder
+local evtSetCtrl  = Instance.new("RemoteEvent"); evtSetCtrl.Name  = "SetControl";   evtSetCtrl.Parent = remotesFolder
+local evtSpeedUpd = Instance.new("RemoteEvent"); evtSpeedUpd.Name = "SpeedUpdate";  evtSpeedUpd.Parent = remotesFolder
+
 local trainModel  = nil
 local rwFolder    = nil
-local statusLabel = nil   -- キオスクのステータス表示ラベル
+local statusLabel = nil
+
+-- 列車運行状態
+local trainSpeed = 0;          local trainDir  = 0;     local trainCtrl = "加速停止"
+local trainParts = {}
+
+local MAX_SPEED  = 130   -- km/h
+local ACCEL_RATE = 15    -- km/h/s
+local BRAKE_RATE = 12    -- km/h/s（通常ブレーキ・惰行）
+local EMERG_RATE = 45    -- km/h/s（急ブレーキ）
 
 -- ClickDetector コールバックから参照するため前方宣言
 local buildTrain
@@ -321,6 +340,7 @@ storeTrain = function()
     if trainModel then
         trainModel:Destroy()
         trainModel = nil
+        trainParts = {}; trainSpeed = 0; trainDir = 0; trainCtrl = "加速停止"
         if statusLabel then statusLabel.Text = "列車: 格納中" end
         print("[TrainBuilder] 列車を格納しました。")
     end
@@ -347,6 +367,14 @@ buildTrain = function()
         buildCar(train, i, cz, i == 1, i == NCARS)
     end
 
+    -- 移動対象パーツをキャッシュ・状態リセット
+    trainParts = {}
+    for _, desc in ipairs(train:GetDescendants()) do
+        if desc:IsA("BasePart") then table.insert(trainParts, desc) end
+    end
+    trainSpeed = 0; trainDir = 0; trainCtrl = "加速停止"
+    evtSpeedUpd:FireAllClients(0)
+
     if statusLabel then statusLabel.Text = "列車: 運転中" end
     print("[TrainBuilder] 223系2000番台 4両編成を生成しました。")
 end
@@ -362,3 +390,52 @@ rwFolder = Workspace:FindFirstChild(RW_FOLDER)
 
 buildControlPanel()   -- キオスクは起動時に1回のみ生成
 buildTrain()          -- 列車は起動時に自動生成
+
+-- ============================================================
+-- 列車制御イベント（クライアントからの操作を受信）
+-- ============================================================
+evtSetDir:OnServerEvent:Connect(function(_, dirStr)
+    if     dirStr == "前" then trainDir = -1
+    elseif dirStr == "後" then trainDir =  1
+    else                       trainDir =  0 end
+end)
+
+evtSetCtrl:OnServerEvent:Connect(function(_, ctrl)
+    trainCtrl = ctrl
+end)
+
+-- ============================================================
+-- 物理ループ（毎フレーム列車位置を更新）
+-- ============================================================
+local speedTimer = 0
+RunService.Heartbeat:Connect(function(dt)
+    if #trainParts == 0 then return end
+
+    -- 速度変化
+    if trainCtrl == "加速" and trainDir ~= 0 then
+        trainSpeed = math.min(MAX_SPEED, trainSpeed + ACCEL_RATE * dt)
+    elseif trainCtrl == "ブレーキ" then
+        trainSpeed = math.max(0, trainSpeed - BRAKE_RATE * dt)
+    elseif trainCtrl == "急ブレーキ" then
+        trainSpeed = math.max(0, trainSpeed - EMERG_RATE * dt)
+    end
+    -- 中立のときは惰行減速
+    if trainDir == 0 then
+        trainSpeed = math.max(0, trainSpeed - BRAKE_RATE * dt)
+    end
+
+    -- クライアントへ速度通知（0.1 s ごと）
+    speedTimer += dt
+    if speedTimer >= 0.1 then
+        speedTimer = 0
+        evtSpeedUpd:FireAllClients(math.floor(trainSpeed + 0.5))
+    end
+
+    if trainDir == 0 or trainSpeed == 0 then return end
+
+    -- 列車を移動（km/h → studs/frame）
+    local v = Vector3.new(0, 0, trainSpeed * (1000 / 3600) * dt * trainDir)
+    for _, part in ipairs(trainParts) do
+        part.Position += v
+    end
+end)
