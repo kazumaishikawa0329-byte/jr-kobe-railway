@@ -102,6 +102,7 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
     for _, s in ipairs({ -1, 1 }) do
         local sx  = s * (CWID / 2 + 0.07)
         local tag = s < 0 and "L" or "R"
+        local sdFace = s < 0 and Enum.NormalId.Left or Enum.NormalId.Right
         mkP(car, "Stripe"..tag,  Vector3.new(0.11, 0.95, CLEN),          Vector3.new(sx, CBOT+1.35, cz),        C.stripe)
         mkP(car, "WinBand"..tag, Vector3.new(0.11, CHGT*0.43, CLEN-0.4), Vector3.new(sx, CBOT+CHGT*0.685, cz), C.window)
         mkP(car, "Sill"..tag,    Vector3.new(0.11, 0.18, CLEN),          Vector3.new(sx, CBOT+CHGT*0.455, cz), C.sill)
@@ -109,6 +110,44 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
             mkP(car, "Door"..tag..d, Vector3.new(0.1, CHGT*0.70, 1.65),
                 Vector3.new(sx, CBOT+CHGT*0.35, cz+doff), C.door)
         end
+
+        -- 側面行先表示板（種別＋行先を大きく表示）
+        local sdx = s * (CWID / 2 + 0.09)   -- 他の側面パーツより 0.02 外側
+        local sdPart = mkP(car, "SideDest"..tag,
+            Vector3.new(0.12, 1.5, 5.0),
+            Vector3.new(sdx, CBOT + CHGT * 0.81, cz - 2), C.screen)
+        local sg = Instance.new("SurfaceGui")
+        sg.Face   = sdFace
+        sg.Parent = sdPart
+        -- 種別（上 42%）：青背景・白文字
+        local kindFr = Instance.new("Frame")
+        kindFr.Size             = UDim2.new(1, 0, 0.42, 0)
+        kindFr.BackgroundColor3 = Color3.fromRGB(0, 60, 160)
+        kindFr.BorderSizePixel  = 0
+        kindFr.Parent           = sg
+        local kindLbl = Instance.new("TextLabel")
+        kindLbl.Size                   = UDim2.fromScale(1, 1)
+        kindLbl.BackgroundTransparency = 1
+        kindLbl.Text                   = "新快速"
+        kindLbl.TextColor3             = Color3.fromRGB(255, 255, 255)
+        kindLbl.TextScaled             = true
+        kindLbl.Font                   = Enum.Font.GothamBold
+        kindLbl.Parent                 = kindFr
+        -- 行先（下 58%）：黒背景・アンバー文字
+        local destFr = Instance.new("Frame")
+        destFr.Size             = UDim2.new(1, 0, 0.58, 0)
+        destFr.Position         = UDim2.new(0, 0, 0.42, 0)
+        destFr.BackgroundColor3 = Color3.fromRGB(8, 8, 8)
+        destFr.BorderSizePixel  = 0
+        destFr.Parent           = sg
+        local destLbl = Instance.new("TextLabel")
+        destLbl.Size                   = UDim2.fromScale(1, 1)
+        destLbl.BackgroundTransparency = 1
+        destLbl.Text                   = "姫路"
+        destLbl.TextColor3             = Color3.fromRGB(225, 145, 0)
+        destLbl.TextScaled             = true
+        destLbl.Font                   = Enum.Font.GothamBold
+        destLbl.Parent                 = destFr
     end
 
     -- 妻面
