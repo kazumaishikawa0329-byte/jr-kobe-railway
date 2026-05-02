@@ -394,13 +394,13 @@ buildTrain()          -- 列車は起動時に自動生成
 -- ============================================================
 -- 列車制御イベント（クライアントからの操作を受信）
 -- ============================================================
-evtSetDir:OnServerEvent:Connect(function(_, dirStr)
+evtSetDir.OnServerEvent:Connect(function(_, dirStr)
     if     dirStr == "前" then trainDir = -1
     elseif dirStr == "後" then trainDir =  1
     else                       trainDir =  0 end
 end)
 
-evtSetCtrl:OnServerEvent:Connect(function(_, ctrl)
+evtSetCtrl.OnServerEvent:Connect(function(_, ctrl)
     trainCtrl = ctrl
 end)
 
