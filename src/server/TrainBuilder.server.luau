@@ -301,13 +301,12 @@ end
 
 -- ============================================================
 -- 初期化
+-- RailwayTestBuilder がフォルダを再生成し終わるまで待つ
 -- ============================================================
+repeat task.wait() until Workspace:FindFirstChild(RW_FOLDER)
+    and Workspace:FindFirstChild(RW_FOLDER):FindFirstChild("Platform")
+
 rwFolder = Workspace:FindFirstChild(RW_FOLDER)
-if not rwFolder then
-    rwFolder        = Instance.new("Folder")
-    rwFolder.Name   = RW_FOLDER
-    rwFolder.Parent = Workspace
-end
 
 buildControlPanel()   -- キオスクは起動時に1回のみ生成
 buildTrain()          -- 列車は起動時に自動生成
