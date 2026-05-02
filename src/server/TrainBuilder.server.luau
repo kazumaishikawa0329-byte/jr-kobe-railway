@@ -1,43 +1,44 @@
--- 223系2000番台 4両編成の生成・管理（ワールド内コントロールパネル付き）
+-- 223系2000番台 4両編成の生成・管理
 
 local Workspace = game:GetService("Workspace")
 
--- RailwayTestBuilder と同一オフセット
-local OFFSET    = Vector3.new(40, 0, 0)
+local OFFSET    = Vector3.new(40, 0, 0)   -- RailwayTestBuilder と同一
 local RW_FOLDER = "RailwayTest"
 
--- 車両寸法
-local CLEN    = 24      -- 車両長 (Z方向)
-local CWID    = 8       -- 車両幅 (X方向)
-local CHGT    = 6       -- 車両高さ (Y方向)
-local CBOT    = 1.5     -- 車両底面 Y
+local CLEN    = 24
+local CWID    = 8
+local CHGT    = 6
+local CBOT    = 1.5
 local SPACING = CLEN + 1.5
 local NCARS   = 4
 
--- 223系2000番台カラー（実物写真準拠）
 local C = {
-    body     = Color3.fromRGB(196, 198, 194),   -- ステンレス銀
-    door     = Color3.fromRGB(186, 188, 184),   -- ドア（わずかに暗め）
-    stripe   = Color3.fromRGB(0,   82,  160),   -- JR西日本ブルー
-    window   = Color3.fromRGB(22,  28,  45),    -- 濃紺窓
-    sill     = Color3.fromRGB(55,  60,  72),    -- 窓下ライン
-    roof     = Color3.fromRGB(158, 160, 155),   -- 屋根
-    skirt    = Color3.fromRGB(35,  35,  35),    -- 床下・パンタ
-    front    = Color3.fromRGB(12,  12,  12),    -- 前面（ほぼ黒）
-    headlamp = Color3.fromRGB(255, 250, 215),   -- 前照灯（白）
-    taillamp = Color3.fromRGB(195, 8,   8),     -- 尾灯（赤）
-    dest     = Color3.fromRGB(225, 145, 0),     -- 行先表示LED（橙）
-    coupler  = Color3.fromRGB(75,  75,  75),    -- 連結器
-    seat     = Color3.fromRGB(38,  48,  72),    -- 運転席シート
-    indic    = Color3.fromRGB(255, 228, 0),     -- 乗車インジケーター（黄）
-    btnBlue  = Color3.fromRGB(0,   100, 180),   -- 呼出ボタン
-    btnDark  = Color3.fromRGB(55,  55,  65),    -- 格納ボタン
+    body     = Color3.fromRGB(196, 198, 194),
+    door     = Color3.fromRGB(186, 188, 184),
+    stripe   = Color3.fromRGB(0,   82,  160),
+    window   = Color3.fromRGB(22,  28,  45),
+    sill     = Color3.fromRGB(55,  60,  72),
+    roof     = Color3.fromRGB(158, 160, 155),
+    skirt    = Color3.fromRGB(35,  35,  35),
+    front    = Color3.fromRGB(12,  12,  12),
+    headlamp = Color3.fromRGB(255, 250, 215),
+    taillamp = Color3.fromRGB(195, 8,   8),
+    dest     = Color3.fromRGB(225, 145, 0),
+    coupler  = Color3.fromRGB(75,  75,  75),
+    seat     = Color3.fromRGB(38,  48,  72),
+    boarding = Color3.fromRGB(240, 185, 0),    -- 乗車マーカー（黄）
+    kiosk    = Color3.fromRGB(28,  34,  50),   -- キオスク本体
+    kioskTop = Color3.fromRGB(0,   180, 255),  -- キオスク上部（Neon）
+    btnBlue  = Color3.fromRGB(0,   95,  175),
+    btnDark  = Color3.fromRGB(50,  50,  62),
+    screen   = Color3.fromRGB(8,   12,  20),
 }
 
-local trainModel = nil
-local rwFolder   = nil
+local trainModel  = nil
+local rwFolder    = nil
+local statusLabel = nil   -- キオスクのステータス表示ラベル
 
--- 前方宣言（ClickDetector コールバックから参照するため）
+-- ClickDetector コールバックから参照するため前方宣言
 local buildTrain
 local storeTrain
 
@@ -58,6 +59,21 @@ local function mkP(parent, name, size, lp, color, mat)
     return p
 end
 
+local function addText(part, face, text, color)
+    local sg  = Instance.new("SurfaceGui")
+    sg.Face   = face
+    sg.Parent = part
+    local lbl = Instance.new("TextLabel")
+    lbl.Size                   = UDim2.fromScale(1, 1)
+    lbl.BackgroundTransparency = 1
+    lbl.Text                   = text
+    lbl.TextColor3             = color or Color3.fromRGB(255, 255, 255)
+    lbl.TextScaled             = true
+    lbl.Font                   = Enum.Font.GothamBold
+    lbl.Parent                 = sg
+    return lbl
+end
+
 -- ============================================================
 -- 1両の構築
 -- ============================================================
@@ -68,203 +84,195 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
 
     local cy = CBOT + CHGT / 2
 
-    -- 車体本体（ステンレス銀）
-    mkP(car, "Body", Vector3.new(CWID, CHGT, CLEN),
-        Vector3.new(0, cy, cz), C.body)
-
-    -- 屋根（本体よりやや暗め）
-    mkP(car, "Roof", Vector3.new(CWID, 0.55, CLEN),
-        Vector3.new(0, CBOT + CHGT + 0.27, cz), C.roof)
-
-    -- 床下スカート（車体より僅かに広く、暗色）
-    mkP(car, "Skirt", Vector3.new(CWID + 0.3, 0.65, CLEN + 0.1),
-        Vector3.new(0, CBOT - 0.325, cz), C.skirt)
-
-    -- 屋根上機器（ベンチレーター）
-    mkP(car, "RoofEquip", Vector3.new(1.2, 0.38, 3.0),
-        Vector3.new(0, CBOT + CHGT + 0.47, cz - 5), C.skirt)
+    -- 車体・屋根・スカート
+    mkP(car, "Body",      Vector3.new(CWID, CHGT, CLEN),         Vector3.new(0, cy, cz),              C.body)
+    mkP(car, "Roof",      Vector3.new(CWID, 0.55, CLEN),         Vector3.new(0, CBOT+CHGT+0.27, cz),  C.roof)
+    mkP(car, "Skirt",     Vector3.new(CWID+0.3, 0.65, CLEN+0.1), Vector3.new(0, CBOT-0.325, cz),      C.skirt)
+    mkP(car, "RoofEquip", Vector3.new(1.2, 0.38, 3.0),           Vector3.new(0, CBOT+CHGT+0.47, cz-5),C.skirt)
 
     -- パンタグラフ（M車: Car1・Car3）
     if idx == 1 or idx == 3 then
-        local py = CBOT + CHGT + 0.55   -- 屋根上面Y
-        mkP(car, "PantBase", Vector3.new(1.6, 0.22, 0.9),
-            Vector3.new(0, py + 0.11, cz + 5), C.skirt)
-        mkP(car, "PantArm", Vector3.new(0.12, 1.6, 0.12),
-            Vector3.new(0, py + 0.91, cz + 5), C.skirt)
-        mkP(car, "PantContact", Vector3.new(CWID * 0.48, 0.1, 0.28),
-            Vector3.new(0, py + 1.71, cz + 5), C.skirt)
+        local py = CBOT + CHGT + 0.55
+        mkP(car, "PantBase",    Vector3.new(1.6, 0.22, 0.9),       Vector3.new(0, py+0.11, cz+5), C.skirt)
+        mkP(car, "PantArm",     Vector3.new(0.12, 1.6, 0.12),      Vector3.new(0, py+0.91, cz+5), C.skirt)
+        mkP(car, "PantContact", Vector3.new(CWID*0.48, 0.1, 0.28), Vector3.new(0, py+1.71, cz+5), C.skirt)
     end
 
-    -- 側面パーツ（左右対称）
+    -- 側面（左右対称）
     for _, s in ipairs({ -1, 1 }) do
         local sx  = s * (CWID / 2 + 0.07)
         local tag = s < 0 and "L" or "R"
-
-        -- 青帯（下部）
-        mkP(car, "Stripe" .. tag, Vector3.new(0.11, 0.95, CLEN),
-            Vector3.new(sx, CBOT + 1.35, cz), C.stripe)
-
-        -- 窓帯（上部、濃紺）
-        mkP(car, "WinBand" .. tag, Vector3.new(0.11, CHGT * 0.43, CLEN - 0.4),
-            Vector3.new(sx, CBOT + CHGT * 0.685, cz), C.window)
-
-        -- 窓下ライン（水平）
-        mkP(car, "Sill" .. tag, Vector3.new(0.11, 0.18, CLEN),
-            Vector3.new(sx, CBOT + CHGT * 0.455, cz), C.sill)
-
-        -- ドア4箇所（将来のドア開閉に対応した命名・サイズ）
+        mkP(car, "Stripe"..tag,  Vector3.new(0.11, 0.95, CLEN),          Vector3.new(sx, CBOT+1.35, cz),        C.stripe)
+        mkP(car, "WinBand"..tag, Vector3.new(0.11, CHGT*0.43, CLEN-0.4), Vector3.new(sx, CBOT+CHGT*0.685, cz), C.window)
+        mkP(car, "Sill"..tag,    Vector3.new(0.11, 0.18, CLEN),          Vector3.new(sx, CBOT+CHGT*0.455, cz), C.sill)
         for d, doff in ipairs({ -9, -3, 3, 9 }) do
-            mkP(car, "Door" .. tag .. d, Vector3.new(0.1, CHGT * 0.70, 1.65),
-                Vector3.new(sx, CBOT + CHGT * 0.35, cz + doff), C.door)
+            mkP(car, "Door"..tag..d, Vector3.new(0.1, CHGT*0.70, 1.65),
+                Vector3.new(sx, CBOT+CHGT*0.35, cz+doff), C.door)
         end
     end
 
-    -- 妻面（前端・後端）
+    -- 妻面
     local function buildEnd(dirZ)
-        local fz  = cz + dirZ * (CLEN / 2)
-        local tk  = 0.32
-        local tag = dirZ < 0 and "F" or "R"
+        local fz   = cz + dirZ * (CLEN / 2)
+        local tk   = 0.32
+        local tag  = dirZ < 0 and "F" or "R"
         local face = dirZ < 0 and Enum.NormalId.Front or Enum.NormalId.Back
 
-        -- 妻面ベース（ほぼ黒）
-        mkP(car, "EndFace" .. tag, Vector3.new(CWID, CHGT + 0.55, tk),
-            Vector3.new(0, cy + 0.27, fz + dirZ * tk / 2), C.front)
+        mkP(car, "EndFace"..tag, Vector3.new(CWID, CHGT+0.55, tk),
+            Vector3.new(0, cy+0.27, fz+dirZ*tk/2), C.front)
+        mkP(car, "Shield"..tag,  Vector3.new(CWID*0.58, CHGT*0.33, tk+0.1),
+            Vector3.new(0, CBOT+CHGT*0.71, fz+dirZ*tk), C.window)
 
-        -- フロントガラス（上部、濃紺）
-        mkP(car, "Shield" .. tag, Vector3.new(CWID * 0.58, CHGT * 0.33, tk + 0.1),
-            Vector3.new(0, CBOT + CHGT * 0.71, fz + dirZ * tk), C.window)
+        local dp = mkP(car, "Dest"..tag, Vector3.new(CWID*0.24, 0.45, tk+0.06),
+            Vector3.new(0, CBOT+CHGT*0.94, fz+dirZ*tk), C.dest)
+        addText(dp, face, "快速　神戸", Color3.fromRGB(255, 255, 255))
 
-        -- 行先表示板（オレンジLED）
-        local dp = mkP(car, "Dest" .. tag, Vector3.new(CWID * 0.24, 0.45, tk + 0.06),
-            Vector3.new(0, CBOT + CHGT * 0.94, fz + dirZ * tk), C.dest)
-        local dsg = Instance.new("SurfaceGui")
-        dsg.Face = face; dsg.Parent = dp
-        local dlbl = Instance.new("TextLabel")
-        dlbl.Size = UDim2.fromScale(1, 1); dlbl.BackgroundTransparency = 1
-        dlbl.Text = "快速　神戸"; dlbl.TextColor3 = Color3.fromRGB(255, 255, 255)
-        dlbl.TextScaled = true; dlbl.Font = Enum.Font.GothamBold; dlbl.Parent = dsg
-
-        -- 前照灯（実物に近い下寄り配置、左右）
         for _, s in ipairs({ -1, 1 }) do
             local hx = s * CWID * 0.31
             local lt = s < 0 and "L" or "R"
-            -- ヘッドライト本体（白）
-            mkP(car, "Head" .. lt .. tag, Vector3.new(1.1, 0.58, tk + 0.12),
-                Vector3.new(hx, CBOT + CHGT * 0.38, fz + dirZ * tk), C.headlamp)
-            -- 尾灯（赤、ヘッドライトより下）
-            mkP(car, "Tail" .. lt .. tag, Vector3.new(0.75, 0.38, tk + 0.1),
-                Vector3.new(hx, CBOT + CHGT * 0.16, fz + dirZ * tk), C.taillamp)
+            mkP(car, "Head"..lt..tag, Vector3.new(1.1, 0.58, tk+0.12),
+                Vector3.new(hx, CBOT+CHGT*0.38, fz+dirZ*tk), C.headlamp)
+            mkP(car, "Tail"..lt..tag, Vector3.new(0.75, 0.38, tk+0.1),
+                Vector3.new(hx, CBOT+CHGT*0.16, fz+dirZ*tk), C.taillamp)
         end
-
-        -- 連結器（中央下部）
-        mkP(car, "Coupler" .. tag, Vector3.new(0.8, 0.55, 0.85),
-            Vector3.new(0, CBOT - 0.2, fz + dirZ * (tk + 0.42)), C.coupler)
+        mkP(car, "Coupler"..tag, Vector3.new(0.8, 0.55, 0.85),
+            Vector3.new(0, CBOT-0.2, fz+dirZ*(tk+0.42)), C.coupler)
     end
 
     if hasFront then buildEnd(-1) end
     if hasRear  then buildEnd(1)  end
 
-    -- 運転席（Car1のみ）
-    if hasFront then
-        local frontZ = cz - CLEN / 2   -- 前面Z（ローカル）
+    -- 乗務員室（前方・後方どちらにも対応）
+    local function buildCab(dirZ)
+        local faceZ   = cz + dirZ * (CLEN / 2)    -- 妻面Z（ローカル）
+        local markerZ = faceZ + dirZ * 2.2         -- 車体外側 2.2 stud
 
-        -- シート：車体前方の外側に配置（プレイヤーがアクセス可能）
+        -- 地面の乗車マーカー（黄色プレート）
+        local marker = mkP(car, "BoardMarker"..(dirZ < 0 and "F" or "R"),
+            Vector3.new(2.8, 0.22, 2.8),
+            Vector3.new(0, 0.11, markerZ), C.boarding)
+
+        -- 乗車案内テキスト（Top面に「乗車口」）
+        addText(marker, Enum.NormalId.Top, "乗車口 ▲", Color3.fromRGB(0, 0, 0))
+
+        -- DriverSeat（マーカーの少し上）
         local seat = Instance.new("Seat")
         seat.Name          = "DriverSeat"
         seat.Size          = Vector3.new(1.8, 0.5, 1.8)
-        seat.Position      = Vector3.new(OFFSET.X, 1.0, frontZ - 2.5)
+        seat.Position      = Vector3.new(OFFSET.X, 0.85, markerZ)
         seat.Anchored      = true
         seat.Color         = C.seat
         seat.TopSurface    = Enum.SurfaceType.Smooth
         seat.BottomSurface = Enum.SurfaceType.Smooth
         seat.Parent        = car
 
-        -- 乗車位置インジケーター（Neonスフィア + BillboardGui）
-        local ind = mkP(car, "SeatIndicator", Vector3.new(0.65, 0.65, 0.65),
-            Vector3.new(0, 4.5, frontZ - 2.5), C.indic, Enum.Material.Neon)
-        ind.Shape      = Enum.PartType.Ball
-        ind.CanCollide = false
+        -- ProximityPrompt（マーカー上、プレイヤーが近づいて E で乗車）
+        local prompt = Instance.new("ProximityPrompt")
+        prompt.ActionText            = "乗車する"
+        prompt.ObjectText            = "運転席"
+        prompt.KeyboardKeyCode       = Enum.KeyCode.E
+        prompt.MaxActivationDistance = 7
+        prompt.RequiresLineOfSight   = false
+        prompt.HoldDuration          = 0
+        prompt.Parent                = marker
 
-        local bbg = Instance.new("BillboardGui")
-        bbg.Size        = UDim2.fromOffset(155, 46)
-        bbg.StudsOffset = Vector3.new(0, 1.5, 0)
-        bbg.AlwaysOnTop = true
-        bbg.Parent      = ind
-
-        local bbl = Instance.new("TextLabel")
-        bbl.Size                   = UDim2.fromScale(1, 1)
-        bbl.BackgroundColor3       = Color3.fromRGB(0, 0, 0)
-        bbl.BackgroundTransparency = 0.22
-        bbl.Text                   = "▼ 運転席 [E]"
-        bbl.TextColor3             = Color3.fromRGB(255, 230, 0)
-        bbl.TextSize               = 17
-        bbl.Font                   = Enum.Font.GothamBold
-        bbl.Parent                 = bbg
-        local bbcr = Instance.new("UICorner")
-        bbcr.CornerRadius = UDim.new(0, 5); bbcr.Parent = bbl
+        prompt.Triggered:Connect(function(player)
+            local char = player.Character
+            if not char then return end
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then seat:Sit(hum) end
+        end)
     end
+
+    if hasFront then buildCab(-1) end   -- Car1 前方
+    if hasRear  then buildCab(1)  end   -- Car4 後方
 end
 
 -- ============================================================
--- ワールド内コントロールパネルの生成（起動時に1度のみ）
+-- 列車コントロールキオスク（スポーン地点近くに1度だけ生成）
 -- ============================================================
 local function buildControlPanel()
-    if rwFolder:FindFirstChild("TrainControlPanel") then return end
+    if rwFolder:FindFirstChild("TrainKiosk") then return end
 
     local cp = Instance.new("Model")
-    cp.Name   = "TrainControlPanel"
+    cp.Name   = "TrainKiosk"
     cp.Parent = rwFolder
 
-    -- ホームの後端付近（local: X=5.5, Z=11〜13）
-    local pnlX = 5.5    -- プラットフォーム中心X（ローカル）
-    local pnlZ = 12.0   -- ホーム後端付近Z（ローカル）
+    -- スポーン地点(X=0)とホーム(X=40+)の中間、絶対 X=12
+    -- ローカル座標: X = 12 - 40 = -28
+    local kx = -28
+    local kz = 0
 
-    -- 案内支柱
-    mkP(cp, "Post", Vector3.new(0.3, 2.5, 0.3),
-        Vector3.new(pnlX, CBOT + 1.25, pnlZ + 1.2), C.skirt)
+    -- キオスク本体
+    mkP(cp, "Body", Vector3.new(2.4, 2.4, 0.9), Vector3.new(kx, 1.2, kz), C.kiosk)
 
-    -- 案内看板（X-方向がプレイヤー接近方向）
-    local sign = mkP(cp, "Sign", Vector3.new(0.15, 0.9, 3.6),
-        Vector3.new(pnlX - 0.075, CBOT + 3.15, pnlZ + 1.2), C.front)
-    local ssg = Instance.new("SurfaceGui")
-    ssg.Face = Enum.NormalId.Left; ssg.Parent = sign
-    local sl = Instance.new("TextLabel")
-    sl.Size = UDim2.fromScale(1, 1); sl.BackgroundTransparency = 1
-    sl.Text = "列車コントロール"; sl.TextColor3 = Color3.fromRGB(255, 220, 0)
-    sl.TextScaled = true; sl.Font = Enum.Font.GothamBold; sl.Parent = ssg
+    -- 上部 Neon（遠くから視認できるよう光らせる）
+    local top = mkP(cp, "Top", Vector3.new(2.6, 0.45, 1.1),
+        Vector3.new(kx, 2.625, kz), C.kioskTop, Enum.Material.Neon)
 
-    -- ClickDetector付きボタン生成
-    local function makeBtn(name, label, color, bz, cb)
-        local btn = mkP(cp, name, Vector3.new(2.8, 0.4, 1.5),
-            Vector3.new(pnlX, 1.2 + 0.2, bz), color)
-        local sg = Instance.new("SurfaceGui")
-        sg.Face = Enum.NormalId.Top; sg.Parent = btn
-        local l = Instance.new("TextLabel")
-        l.Size = UDim2.fromScale(1, 1); l.BackgroundTransparency = 1
-        l.Text = label; l.TextColor3 = Color3.fromRGB(255, 255, 255)
-        l.TextScaled = true; l.Font = Enum.Font.GothamBold; l.Parent = sg
-        local cd = Instance.new("ClickDetector")
-        cd.MaxActivationDistance = 12; cd.Parent = btn
-        cd.MouseClick:Connect(function() cb() end)
-    end
+    -- キオスクタイトル（BillboardGui、遠くから見える高さに配置）
+    local bbg = Instance.new("BillboardGui")
+    bbg.Size        = UDim2.fromOffset(210, 54)
+    bbg.StudsOffset = Vector3.new(0, 2.2, 0)
+    bbg.AlwaysOnTop = false
+    bbg.Parent      = top
+    local bbl = Instance.new("TextLabel")
+    bbl.Size                   = UDim2.fromScale(1, 1)
+    bbl.BackgroundColor3       = Color3.fromRGB(0, 50, 120)
+    bbl.BackgroundTransparency = 0.08
+    bbl.Text                   = "列車コントロール"
+    bbl.TextColor3             = Color3.fromRGB(255, 255, 255)
+    bbl.TextSize               = 16
+    bbl.Font                   = Enum.Font.GothamBold
+    bbl.Parent                 = bbg
+    local bbcr = Instance.new("UICorner"); bbcr.CornerRadius = UDim.new(0, 5); bbcr.Parent = bbl
 
-    makeBtn("SpawnBtn", "▶ 列車を呼び出す", C.btnBlue, pnlZ,       function() buildTrain() end)
-    makeBtn("StoreBtn", "■ 列車を格納する",  C.btnDark, pnlZ + 2.0, function() storeTrain() end)
+    -- キオスク正面はプレイヤー接近方向（Left = -X 面）
+    -- ボタン類はキオスク本体から 0.16 stud 突出させて z-fighting を防ぐ
+    local FACE = Enum.NormalId.Left
+    local bx   = kx - 1.28   -- 本体左端 (kx-1.2) より 0.08 外側
+
+    -- ステータス表示（上段）
+    local scrPart = mkP(cp, "Screen", Vector3.new(0.16, 0.62, 2.0),
+        Vector3.new(bx, 2.0, kz), C.screen)
+    statusLabel = addText(scrPart, FACE, "列車: 格納中", Color3.fromRGB(0, 225, 110))
+
+    -- 「→ 神戸駅（テスト）方面」 案内ライン
+    local dirPart = mkP(cp, "DirSign", Vector3.new(0.16, 0.42, 2.0),
+        Vector3.new(bx, 1.46, kz), C.screen)
+    addText(dirPart, FACE, "→ X+ 方向が神戸駅", Color3.fromRGB(255, 220, 70))
+
+    -- 呼び出しボタン（青）
+    local spPart = mkP(cp, "SpawnBtn", Vector3.new(0.16, 0.58, 1.85),
+        Vector3.new(bx, 0.82, kz), C.btnBlue)
+    addText(spPart, FACE, "▶  列車を呼び出す", Color3.fromRGB(255, 255, 255))
+    local spCd = Instance.new("ClickDetector")
+    spCd.MaxActivationDistance = 12; spCd.Parent = spPart
+    spCd.MouseClick:Connect(function() buildTrain() end)
+
+    -- 格納ボタン（暗色）
+    local stPart = mkP(cp, "StoreBtn", Vector3.new(0.16, 0.58, 1.85),
+        Vector3.new(bx, 0.16, kz), C.btnDark)
+    addText(stPart, FACE, "■  列車を格納する",  Color3.fromRGB(200, 200, 200))
+    local stCd = Instance.new("ClickDetector")
+    stCd.MaxActivationDistance = 12; stCd.Parent = stPart
+    stCd.MouseClick:Connect(function() storeTrain() end)
 end
 
 -- ============================================================
--- 列車の格納
+-- 列車格納
 -- ============================================================
 storeTrain = function()
     if trainModel then
         trainModel:Destroy()
         trainModel = nil
+        if statusLabel then statusLabel.Text = "列車: 格納中" end
         print("[TrainBuilder] 列車を格納しました。")
     end
 end
 
 -- ============================================================
--- 列車の生成
+-- 列車生成
 -- ============================================================
 buildTrain = function()
     if trainModel then
@@ -284,6 +292,7 @@ buildTrain = function()
         buildCar(train, i, cz, i == 1, i == NCARS)
     end
 
+    if statusLabel then statusLabel.Text = "列車: 運転中" end
     print("[TrainBuilder] 223系2000番台 4両編成を生成しました。")
 end
 
@@ -292,10 +301,10 @@ end
 -- ============================================================
 rwFolder = Workspace:FindFirstChild(RW_FOLDER)
 if not rwFolder then
-    rwFolder = Instance.new("Folder")
+    rwFolder        = Instance.new("Folder")
     rwFolder.Name   = RW_FOLDER
     rwFolder.Parent = Workspace
 end
 
-buildControlPanel()   -- コントロールパネルは1回のみ生成
-buildTrain()          -- 起動時に列車を生成
+buildControlPanel()   -- キオスクは起動時に1回のみ生成
+buildTrain()          -- 列車は起動時に自動生成
