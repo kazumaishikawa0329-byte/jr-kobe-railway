@@ -300,10 +300,10 @@ for i, st in ipairs(STATIONS) do
 end
 
 -- 大阪駅スポーン・キオスク広場（4番線東側）
--- 線路の右外（ローカルX=15〜31）にコンクリート地面を追加
+-- 線路の右外（ローカルX=15〜57）にコンクリート地面を追加（プラットフォームからスポーンまで約2倍の距離を確保）
 mkP(folder, "OsakaPlaza",
-    Vector3.new(16, 0.5, PLAT_LEN + 40),
-    Vector3.new(23, 0.25, 4530),
+    Vector3.new(42, 0.5, PLAT_LEN + 40),
+    Vector3.new(36, 0.25, 4530),
     Color3.fromRGB(170, 170, 162), Enum.Material.Concrete)
 
 -- ============================================================
@@ -361,7 +361,7 @@ end
 local spawnLoc = Instance.new("SpawnLocation")
 spawnLoc.Name                  = "OsakaSpawn"
 spawnLoc.Size                  = Vector3.new(6, 1, 6)
-spawnLoc.Position              = Vector3.new(26 + WORLD_OFFSET.X, 1.0, 4552)  -- 広場（線路外、キオスク奥）
+spawnLoc.Position              = Vector3.new(49 + WORLD_OFFSET.X, 1.0, 4552)  -- 広場（線路外、キオスク奥）
 spawnLoc.Anchored              = true
 spawnLoc.Neutral               = true
 spawnLoc.AllowTeamChangeOnTouch = false

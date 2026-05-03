@@ -62,21 +62,34 @@ if errorlevel 1 (
 )
 
 REM =========================
-REM Webサービス起動
+REM アプリ起動
 REM =========================
-echo Webサービス起動
+echo アプリ起動
 
-REM ChatGPT
-start "" https://chat.openai.com/
+REM ChatGPT アプリ
+tasklist /FI "IMAGENAME eq ChatGPT.exe" | find /I "ChatGPT.exe" >nul
+if errorlevel 1 (
+    echo ChatGPT アプリ起動
+    start shell:AppsFolder\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT
+) else (
+    echo ChatGPT は既に起動済み
+)
 
-REM Claude（Anthropic）
-start "" https://claude.ai/
+REM Claude アプリ
+tasklist /FI "IMAGENAME eq Claude.exe" | find /I "Claude.exe" >nul
+if errorlevel 1 (
+    echo Claude アプリ起動
+start shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude
+) else (
+    echo Claude は既に起動済み
+)
 
-REM GitHub（あなたのリポジトリ）
+REM GitHub（リポジトリ）
 start "" https://github.com/kazumaishikawa0329-byte/jr-kobe-railway
 
 REM Roblox Creator Dashboard
 start "" https://create.roblox.com/
+
 
 echo ===== 起動完了 =====
 echo Roblox Studioで Rojo の Connect を押してください（localhost:34872）
