@@ -10,8 +10,20 @@ local player    = Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
 -- カメラ・着席状態
-local camera          = workspace.CurrentCamera
-local currentSeatPart = nil
+local camera           = workspace.CurrentCamera
+local currentSeatPart  = nil
+local currentTrackNum  = nil   -- 乗車中の番線番号
+
+-- 着席しているシートの親 Model 名 "Train_N" から番線番号を取得
+local function getTrackNum(seatPart)
+    local car   = seatPart.Parent
+    local train = car and car.Parent
+    if train then
+        local n = tonumber(string.match(train.Name, "Train_(%d+)"))
+        if n then return n end
+    end
+    return 1
+end
 
 -- モバイルのジョイスティックを表示/非表示
 local function setMobileControls(enabled)
@@ -218,7 +230,7 @@ for i, lbl in ipairs({"前", "中", "後"}) do
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = btn
     dirBtnRefs[lbl] = btn
     btn.MouseButton1Click:Connect(function()
-        evtSetDir:FireServer(lbl)
+        evtSetDir:FireServer(currentTrackNum, lbl)
         for _, b in pairs(dirBtnRefs) do
             b.BackgroundColor3 = Color3.fromRGB(35, 42, 58)
             b.TextColor3       = Color3.fromRGB(180, 180, 180)
@@ -258,7 +270,7 @@ for i, def in ipairs(ctrlDefs) do
     btn.Parent           = ctrlPanel
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 6); c.Parent = btn
     btn.MouseButton1Click:Connect(function()
-        evtSetCtrl:FireServer(def.label)
+        evtSetCtrl:FireServer(currentTrackNum, def.label)
         masconValLbl.Text = def.label == "加速" and "加速" or "OFF"
         if def.label == "ブレーキ" then
             brakeValLbl.Text = "常用制動"
@@ -289,9 +301,11 @@ exitBtn.MouseButton1Click:Connect(function()
     if hum then hum.Sit = false end
 end)
 
--- 速度をサーバーから受信して表示
-evtSpeedUpd.OnClientEvent:Connect(function(speed)
-    speedNum.Text = tostring(speed)
+-- 速度をサーバーから受信して表示（自番線のみ）
+evtSpeedUpd.OnClientEvent:Connect(function(trackNum, speed)
+    if trackNum == currentTrackNum then
+        speedNum.Text = tostring(speed)
+    end
 end)
 
 -- ============================================================
@@ -302,6 +316,7 @@ local function onCharacterAdded(character)
     humanoid.Seated:Connect(function(isSeated, seatPart)
         if isSeated and seatPart and seatPart.Name == "DriverSeat" then
             currentSeatPart = seatPart
+            currentTrackNum = getTrackNum(seatPart)
             hideDrivingCar(seatPart)
             camera.CameraType = Enum.CameraType.Scriptable
             setMobileControls(false)
@@ -317,15 +332,34 @@ local function onCharacterAdded(character)
                 if char and prevSeat then
                     local root = char:FindFirstChild("HumanoidRootPart")
                     if root then
-                        root.CFrame = CFrame.new(
-                            prevSeat.Position.X + 6,
-                            prevSeat.Position.Y + 2,
-                            prevSeat.Position.Z)
+                        local car = prevSeat.Parent
+                        local mF = car and car:FindFirstChild("BoardMarkerF")
+                        local mR = car and car:FindFirstChild("BoardMarkerR")
+                        local marker = nil
+                        if mF and mR then
+                            local dF = (mF.Position - prevSeat.Position).Magnitude
+                            local dR = (mR.Position - prevSeat.Position).Magnitude
+                            marker = dF < dR and mF or mR
+                        else
+                            marker = mF or mR
+                        end
+                        if marker then
+                            root.CFrame = CFrame.new(
+                                marker.Position.X,
+                                marker.Position.Y + 3,
+                                marker.Position.Z)
+                        else
+                            root.CFrame = CFrame.new(
+                                prevSeat.Position.X + 6,
+                                prevSeat.Position.Y + 2,
+                                prevSeat.Position.Z)
+                        end
                     end
                 end
             end)
             restoreDrivingCar()
             currentSeatPart = nil
+            currentTrackNum = nil
             camera.CameraType = Enum.CameraType.Custom
             setMobileControls(true)
             cabGui.Enabled = false

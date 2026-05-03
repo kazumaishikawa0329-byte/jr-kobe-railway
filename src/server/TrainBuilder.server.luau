@@ -11,6 +11,7 @@ local CLEN    = 24
 local CWID    = 8
 local CHGT    = 6
 local CBOT    = 1.5
+local PLAT_H  = 1.2   -- RailwayTestBuilder と一致
 local SPACING = CLEN + 1.5
 local NCARS   = 4
 
@@ -44,13 +45,19 @@ local evtSetDir   = Instance.new("RemoteEvent"); evtSetDir.Name   = "SetDirectio
 local evtSetCtrl  = Instance.new("RemoteEvent"); evtSetCtrl.Name  = "SetControl";   evtSetCtrl.Parent = remotesFolder
 local evtSpeedUpd = Instance.new("RemoteEvent"); evtSpeedUpd.Name = "SpeedUpdate";  evtSpeedUpd.Parent = remotesFolder
 
-local trainModel  = nil
 local rwFolder    = nil
 local statusLabel = nil
 
--- 列車運行状態
-local trainSpeed = 0;          local trainDir  = 0;     local trainCtrl = "加速停止"
-local trainParts = {}
+-- Per-track 列車状態
+local NUM_TRACKS     = 4
+local trainModels    = {}   -- [trackNum] = Model or nil
+local trainPartsList = {}   -- [trackNum] = {BasePart,...}
+
+-- Per-track 運行状態
+local trainSpeeds = {}; local trainDirs = {}; local trainCtrls = {}
+for t = 1, 4 do
+    trainSpeeds[t] = 0; trainDirs[t] = 0; trainCtrls[t] = "加速停止"
+end
 
 local MAX_SPEED  = 130   -- km/h
 local ACCEL_RATE = 15    -- km/h/s
@@ -60,6 +67,17 @@ local EMERG_RATE = 45    -- km/h/s（急ブレーキ）
 -- ClickDetector コールバックから参照するため前方宣言
 local buildTrain
 local storeTrain
+
+-- トグルボタン参照（buildTrain/storeTrain からラベルとパーツ色を更新）
+local trackBtnLabels = {}
+local trackBtnParts  = {}
+
+-- 指定番線のスポーンマーカーから位置シフトを返す（共通処理）
+local function getSpawnShift(trackNum)
+    local mark = rwFolder and rwFolder:FindFirstChild("TrackSpawn_" .. trackNum)
+    if not mark then return Vector3.zero end
+    return Vector3.new(mark.Position.X - OFFSET.X, 0, mark.Position.Z)
+end
 
 -- ============================================================
 -- ヘルパー
@@ -107,7 +125,8 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
     local body = mkP(car, "Body",      Vector3.new(CWID, CHGT, CLEN),         Vector3.new(0, cy, cz),              C.body)
     body.CanCollide = false
     mkP(car, "Roof",      Vector3.new(CWID, 0.55, CLEN),         Vector3.new(0, CBOT+CHGT+0.27, cz),  C.roof)
-    mkP(car, "Skirt",     Vector3.new(CWID+0.3, 0.65, CLEN+0.1), Vector3.new(0, CBOT-0.325, cz),      C.skirt)
+    local skirt = mkP(car, "Skirt", Vector3.new(CWID+0.3, 0.65, CLEN+0.1), Vector3.new(0, CBOT-0.325, cz), C.skirt)
+    skirt.CanCollide = false
     mkP(car, "RoofEquip", Vector3.new(1.2, 0.38, 3.0),           Vector3.new(0, CBOT+CHGT+0.47, cz-5),C.skirt)
 
     -- パンタグラフ（M車: Car1・Car3）
@@ -177,8 +196,9 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         local tag  = dirZ < 0 and "F" or "R"
         local face = dirZ < 0 and Enum.NormalId.Front or Enum.NormalId.Back
 
-        mkP(car, "EndFace"..tag, Vector3.new(CWID, CHGT+0.55, tk),
+        local ef = mkP(car, "EndFace"..tag, Vector3.new(CWID, CHGT+0.55, tk),
             Vector3.new(0, cy+0.27, fz+dirZ*tk/2), C.front)
+        ef.CanCollide = false
         mkP(car, "Shield"..tag,  Vector3.new(CWID*0.58, CHGT*0.33, tk+0.1),
             Vector3.new(0, CBOT+CHGT*0.71, fz+dirZ*tk), C.window)
 
@@ -266,122 +286,125 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
     if hasRear  then buildCab(1)  end   -- Car4 後方
 end
 
--- ============================================================
--- 列車コントロールキオスク（スポーン地点近くに1度だけ生成）
--- ============================================================
-local function buildControlPanel()
-    if rwFolder:FindFirstChild("TrainKiosk") then return end
-
-    local cp = Instance.new("Model")
-    cp.Name   = "TrainKiosk"
-    cp.Parent = rwFolder
-
-    -- スポーン地点(X=0)から X+ 方向に 8 stud の位置、絶対 X=8
-    -- ローカル座標: X = 8 - 40 = -32
-    local kx = -32
-    local kz = 0
-
-    -- キオスク本体（高さ3.0、Y=0〜3.0）
-    mkP(cp, "Body", Vector3.new(2.4, 3.0, 0.9), Vector3.new(kx, 1.5, kz), C.kiosk)
-
-    -- ビーコンポール（高さ5、Neon）
-    local pole = mkP(cp, "Beacon", Vector3.new(0.6, 5, 0.6),
-        Vector3.new(kx, 5.5, kz), C.kioskTop, Enum.Material.Neon)
-
-    -- 近くに来たときだけ見えるラベル（MaxDistance=25）
-    local bbg = Instance.new("BillboardGui")
-    bbg.Size        = UDim2.fromOffset(220, 52)
-    bbg.StudsOffset = Vector3.new(0, 3, 0)
-    bbg.AlwaysOnTop = false
-    bbg.MaxDistance = 25
-    bbg.Parent      = pole
-    local bbl = Instance.new("TextLabel")
-    bbl.Size                   = UDim2.fromScale(1, 1)
-    bbl.BackgroundColor3       = Color3.fromRGB(0, 50, 120)
-    bbl.BackgroundTransparency = 0.1
-    bbl.Text                   = "列車コントロール"
-    bbl.TextColor3             = Color3.fromRGB(255, 255, 255)
-    bbl.TextSize               = 16
-    bbl.Font                   = Enum.Font.GothamBold
-    bbl.Parent                 = bbg
-    local bbcr = Instance.new("UICorner"); bbcr.CornerRadius = UDim.new(0, 5); bbcr.Parent = bbl
-
-    -- キオスク正面はスポーン側（-X 面）、ボタンは 0.08 外側に突出
-    local FACE = Enum.NormalId.Left
-    local bx   = kx - 1.28   -- 本体左端 (kx-1.2) より 0.08 外側
-
-    -- ステータス表示（上段）
-    local scrPart = mkP(cp, "Screen", Vector3.new(0.16, 0.55, 2.0),
-        Vector3.new(bx, 2.72, kz), C.screen)
-    statusLabel = addText(scrPart, FACE, "列車: 格納中", Color3.fromRGB(0, 225, 110))
-
-    -- 呼び出しボタン（青）Y=1.8 → 地面から明確に上
-    local spPart = mkP(cp, "SpawnBtn", Vector3.new(0.16, 0.85, 1.9),
-        Vector3.new(bx, 1.8, kz), C.btnBlue)
-    addText(spPart, FACE, "▶ 列車を呼び出す", Color3.fromRGB(255, 255, 255))
-    local spCd = Instance.new("ClickDetector")
-    spCd.MaxActivationDistance = 15; spCd.Parent = spPart
-    spCd.MouseClick:Connect(function()
-        print("[TrainBuilder] 呼び出しボタンが押されました")
-        buildTrain()
-    end)
-
-    -- 格納ボタン（暗色）Y=0.85 → 地面から明確に上
-    local stPart = mkP(cp, "StoreBtn", Vector3.new(0.16, 0.85, 1.9),
-        Vector3.new(bx, 0.85, kz), C.btnDark)
-    addText(stPart, FACE, "■ 列車を格納する", Color3.fromRGB(200, 200, 200))
-    local stCd = Instance.new("ClickDetector")
-    stCd.MaxActivationDistance = 15; stCd.Parent = stPart
-    stCd.MouseClick:Connect(function()
-        print("[TrainBuilder] 格納ボタンが押されました")
-        storeTrain()
-    end)
-end
 
 -- ============================================================
 -- 列車格納
 -- ============================================================
-storeTrain = function()
-    if trainModel then
-        trainModel:Destroy()
-        trainModel = nil
-        trainParts = {}; trainSpeed = 0; trainDir = 0; trainCtrl = "加速停止"
-        if statusLabel then statusLabel.Text = "列車: 格納中" end
-        print("[TrainBuilder] 列車を格納しました。")
+storeTrain = function(trackNum)
+    if trainModels[trackNum] then
+        trainModels[trackNum]:Destroy()
+        trainModels[trackNum]    = nil
+        trainPartsList[trackNum] = nil
+        trainSpeeds[trackNum] = 0; trainDirs[trackNum] = 0; trainCtrls[trackNum] = "加速停止"
+        evtSpeedUpd:FireAllClients(trackNum, 0)
+        if trackBtnLabels[trackNum] then
+            trackBtnLabels[trackNum].Text = trackNum .. "番線を出す"
+            trackBtnLabels[trackNum].BackgroundColor3 = C.btnBlue
+        end
+        print(string.format("[TrainBuilder] %d番線の列車を格納しました。", trackNum))
+    end
+    if statusLabel then
+        local anyActive = false
+        for t = 1, NUM_TRACKS do if trainModels[t] then anyActive = true; break end end
+        statusLabel.Text = anyActive and "列車: 運転中" or "列車: 格納中"
     end
 end
 
 -- ============================================================
 -- 列車生成
 -- ============================================================
-buildTrain = function()
-    if trainModel then
-        trainModel:Destroy()
-        trainModel = nil
+buildTrain = function(trackNum)
+    if trainModels[trackNum] then
+        print(string.format("[TrainBuilder] %d番線はすでに運転中です。", trackNum))
+        return
     end
-    local existing = rwFolder:FindFirstChild("Train")
-    if existing then existing:Destroy() end
 
     local train = Instance.new("Model")
-    train.Name   = "Train"
+    train.Name   = "Train_" .. trackNum
     train.Parent = rwFolder
-    trainModel   = train
+    trainModels[trackNum] = train
 
     for i = 1, NCARS do
         local cz = (i - (NCARS + 1) / 2) * SPACING
         buildCar(train, i, cz, i == 1, i == NCARS)
     end
 
-    -- 移動対象パーツをキャッシュ・状態リセット
-    trainParts = {}
+    local parts = {}
     for _, desc in ipairs(train:GetDescendants()) do
-        if desc:IsA("BasePart") then table.insert(trainParts, desc) end
+        if desc:IsA("BasePart") then table.insert(parts, desc) end
     end
-    trainSpeed = 0; trainDir = 0; trainCtrl = "加速停止"
-    evtSpeedUpd:FireAllClients(0)
+    trainPartsList[trackNum] = parts
 
-    if statusLabel then statusLabel.Text = "列車: 運転中" end
-    print("[TrainBuilder] 223系2000番台 4両編成を生成しました。")
+    -- 番線スポーンマーカーへ位置合わせ（共通処理）
+    local shift = getSpawnShift(trackNum)
+    for _, part in ipairs(parts) do
+        part.CFrame = part.CFrame + shift
+    end
+
+    trainSpeeds[trackNum] = 0; trainDirs[trackNum] = 0; trainCtrls[trackNum] = "加速停止"
+    evtSpeedUpd:FireAllClients(trackNum, 0)
+
+    if trackBtnLabels[trackNum] then
+        trackBtnLabels[trackNum].Text = trackNum .. "番線を格納"
+        trackBtnLabels[trackNum].BackgroundColor3 = C.btnDark
+    end
+    print(string.format("[TrainBuilder] %d番線に223系2000番台を生成しました。", trackNum))
+end
+
+-- ============================================================
+-- 番線別キオスク（本体クリックでトグル：出す ↔ 格納する）
+-- 大阪駅広場（4番線東側 ローカルX=22）に設置
+-- ============================================================
+local KIOSK_GROUND = 0.5   -- 広場コンクリート天面 Y
+
+local function buildTrackPanels()
+    for t = 1, NUM_TRACKS do
+        local pz = 4535 + (t - 1) * 4   -- 番線ごとに 4 stud ずつずらす
+        local px = 22                     -- 4番線右外の広場（プラットフォームとスポーンの間）
+
+        local cp = Instance.new("Model")
+        cp.Name   = "TrackPanel_" .. t
+        cp.Parent = rwFolder
+
+        -- キオスク本体（広場上：底 Y=0.5、高さ 1.6 → 中心 Y=1.3）
+        local body = mkP(cp, "Body", Vector3.new(2.0, 1.6, 0.5),
+            Vector3.new(px, KIOSK_GROUND + 0.8, pz), C.kiosk)
+        body.CanCollide = false
+
+        -- 番線ポール（Neon）
+        mkP(cp, "Pole", Vector3.new(0.3, 2.5, 0.3),
+            Vector3.new(px, KIOSK_GROUND + 1.6 + 1.25, pz), C.kioskTop, Enum.Material.Neon)
+
+        -- トグル状態 BillboardGui（本体上・番線番号込み）
+        local togBbg = Instance.new("BillboardGui")
+        togBbg.Size        = UDim2.fromOffset(150, 38)
+        togBbg.StudsOffset = Vector3.new(0, 1.5, 0)
+        togBbg.MaxDistance = 20
+        togBbg.Parent      = body
+        local toggleLbl = Instance.new("TextLabel")
+        toggleLbl.Size                   = UDim2.fromScale(1, 1)
+        toggleLbl.BackgroundColor3       = C.btnBlue
+        toggleLbl.BackgroundTransparency = 0
+        toggleLbl.Text                   = t .. "番線を出す"
+        toggleLbl.TextColor3             = Color3.fromRGB(255, 255, 255)
+        toggleLbl.TextSize               = 14
+        toggleLbl.Font                   = Enum.Font.GothamBold
+        toggleLbl.Parent                 = togBbg
+        local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(0, 5); tc.Parent = toggleLbl
+
+        trackBtnLabels[t] = toggleLbl
+        trackBtnParts[t]  = body
+
+        -- 本体をクリックで列車トグル
+        local cd = Instance.new("ClickDetector")
+        cd.MaxActivationDistance = 15
+        cd.Parent = body
+        local capturedT = t
+        cd.MouseClick:Connect(function()
+            if trainModels[capturedT] then storeTrain(capturedT)
+            else buildTrain(capturedT) end
+        end)
+    end
 end
 
 -- ============================================================
@@ -393,20 +416,22 @@ repeat task.wait() until Workspace:FindFirstChild(RW_FOLDER)
 
 rwFolder = Workspace:FindFirstChild(RW_FOLDER)
 
-buildControlPanel()   -- キオスクは起動時に1回のみ生成
-buildTrain()          -- 列車は起動時に自動生成
+buildTrackPanels()    -- 番線別トグルパネル（列車は格納状態で開始）
 
 -- ============================================================
 -- 列車制御イベント（クライアントからの操作を受信）
 -- ============================================================
-evtSetDir.OnServerEvent:Connect(function(_, dirStr)
-    if     dirStr == "前" then trainDir = -1
-    elseif dirStr == "後" then trainDir =  1
-    else                       trainDir =  0 end
+evtSetDir.OnServerEvent:Connect(function(_, trackNum, dirStr)
+    if not trainDirs[trackNum] then return end
+    if     dirStr == "前" then trainDirs[trackNum] = -1
+    elseif dirStr == "後" then trainDirs[trackNum] =  1
+    else                       trainDirs[trackNum] =  0 end
 end)
 
-evtSetCtrl.OnServerEvent:Connect(function(_, ctrl)
-    trainCtrl = ctrl
+evtSetCtrl.OnServerEvent:Connect(function(_, trackNum, ctrl)
+    if trainCtrls[trackNum] ~= nil then
+        trainCtrls[trackNum] = ctrl
+    end
 end)
 
 -- ============================================================
@@ -414,33 +439,40 @@ end)
 -- ============================================================
 local speedTimer = 0
 RunService.Heartbeat:Connect(function(dt)
-    if #trainParts == 0 then return end
-
-    -- 速度変化
-    if trainCtrl == "加速" and trainDir ~= 0 then
-        trainSpeed = math.min(MAX_SPEED, trainSpeed + ACCEL_RATE * dt)
-    elseif trainCtrl == "ブレーキ" then
-        trainSpeed = math.max(0, trainSpeed - BRAKE_RATE * dt)
-    elseif trainCtrl == "急ブレーキ" then
-        trainSpeed = math.max(0, trainSpeed - EMERG_RATE * dt)
-    end
-    -- 中立のときは惰行減速
-    if trainDir == 0 then
-        trainSpeed = math.max(0, trainSpeed - BRAKE_RATE * dt)
-    end
-
-    -- クライアントへ速度通知（0.1 s ごと）
     speedTimer += dt
-    if speedTimer >= 0.1 then
-        speedTimer = 0
-        evtSpeedUpd:FireAllClients(math.floor(trainSpeed + 0.5))
-    end
+    local doSpeedUpdate = speedTimer >= 0.1
+    if doSpeedUpdate then speedTimer = 0 end
 
-    if trainDir == 0 or trainSpeed == 0 then return end
+    for t = 1, NUM_TRACKS do
+        local parts = trainPartsList[t]
+        if not parts then continue end
 
-    -- 列車を移動（km/h → studs/frame）
-    local v = Vector3.new(0, 0, trainSpeed * (1000 / 3600) * dt * trainDir)
-    for _, part in ipairs(trainParts) do
-        part.Position += v
+        local spd  = trainSpeeds[t]
+        local dir  = trainDirs[t]
+        local ctrl = trainCtrls[t]
+
+        -- 番線ごとの速度変化
+        if ctrl == "加速" and dir ~= 0 then
+            spd = math.min(MAX_SPEED, spd + ACCEL_RATE * dt)
+        elseif ctrl == "ブレーキ" then
+            spd = math.max(0, spd - BRAKE_RATE * dt)
+        elseif ctrl == "急ブレーキ" then
+            spd = math.max(0, spd - EMERG_RATE * dt)
+        end
+        if dir == 0 then
+            spd = math.max(0, spd - BRAKE_RATE * dt)
+        end
+        trainSpeeds[t] = spd
+
+        if doSpeedUpdate then
+            evtSpeedUpd:FireAllClients(t, math.floor(spd + 0.5))
+        end
+
+        if dir ~= 0 and spd > 0 then
+            local v = Vector3.new(0, 0, spd * (1000 / 3600) * dt * dir)
+            for _, part in ipairs(parts) do
+                part.Position += v
+            end
+        end
     end
 end)
