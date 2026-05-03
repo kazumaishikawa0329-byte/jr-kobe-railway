@@ -68,9 +68,18 @@ local EMERG_RATE = 45    -- km/h/s（急ブレーキ）
 local buildTrain
 local storeTrain
 
--- トグルボタン参照（buildTrain/storeTrain からラベルとパーツ色を更新）
-local trackBtnLabels = {}
-local trackBtnParts  = {}
+-- トグルボタン参照（buildTrain/storeTrain からラベル・パーツ色・プロンプトを更新）
+local trackBtnLabels  = {}
+local trackBtnParts   = {}
+local trackBtnPrompts = {}
+
+-- 番線別カラー（storeTrain/buildTrain/buildTrackPanels で共通使用）
+local TRACK_COLORS = {
+    Color3.fromRGB(0,   82, 160),   -- 1番線: JR ブルー
+    Color3.fromRGB(0,  150,  60),   -- 2番線: グリーン
+    Color3.fromRGB(200,  90,   0),  -- 3番線: オレンジ
+    Color3.fromRGB(180,   0,   0),  -- 4番線: レッド
+}
 
 -- 指定番線のスポーンマーカーから位置シフトを返す（共通処理）
 local function getSpawnShift(trackNum)
@@ -299,7 +308,10 @@ storeTrain = function(trackNum)
         evtSpeedUpd:FireAllClients(trackNum, 0)
         if trackBtnLabels[trackNum] then
             trackBtnLabels[trackNum].Text = trackNum .. "番線を出す"
-            trackBtnLabels[trackNum].BackgroundColor3 = C.btnBlue
+            trackBtnLabels[trackNum].BackgroundColor3 = TRACK_COLORS[trackNum]
+        end
+        if trackBtnPrompts[trackNum] then
+            trackBtnPrompts[trackNum].ActionText = "列車を出す"
         end
         print(string.format("[TrainBuilder] %d番線の列車を格納しました。", trackNum))
     end
@@ -348,59 +360,72 @@ buildTrain = function(trackNum)
         trackBtnLabels[trackNum].Text = trackNum .. "番線を格納"
         trackBtnLabels[trackNum].BackgroundColor3 = C.btnDark
     end
+    if trackBtnPrompts[trackNum] then
+        trackBtnPrompts[trackNum].ActionText = "列車を格納"
+    end
     print(string.format("[TrainBuilder] %d番線に223系2000番台を生成しました。", trackNum))
 end
 
 -- ============================================================
--- 番線別キオスク（本体クリックでトグル：出す ↔ 格納する）
--- 大阪駅広場（4番線東側 ローカルX=22）に設置
+-- 番線別キオスク（クリック / ProximityPrompt でトグル：出す ↔ 格納する）
+-- 大阪駅広場（4番線東側 ローカルX=32）に設置
 -- ============================================================
 local KIOSK_GROUND = 0.5   -- 広場コンクリート天面 Y
 
 local function buildTrackPanels()
     for t = 1, NUM_TRACKS do
-        local pz = 4535 + (t - 1) * 4   -- 番線ごとに 4 stud ずつずらす
-        local px = 22                     -- 4番線右外の広場（プラットフォームとスポーンの間）
+        local pz = 4530 + (t - 1) * 12  -- 番線ごとに 12 stud ずつずらす（ProximityPrompt が重ならないよう十分な間隔）
+        local px = 32                     -- 広場中央（プラットフォームとスポーンの間）
 
         local cp = Instance.new("Model")
         cp.Name   = "TrackPanel_" .. t
         cp.Parent = rwFolder
 
         -- キオスク本体（広場上：底 Y=0.5、高さ 1.6 → 中心 Y=1.3）
+        -- CanCollide を true のままにして ProximityPrompt が正常に動作するようにする
         local body = mkP(cp, "Body", Vector3.new(2.0, 1.6, 0.5),
             Vector3.new(px, KIOSK_GROUND + 0.8, pz), C.kiosk)
-        body.CanCollide = false
 
-        -- 番線ポール（Neon）
-        mkP(cp, "Pole", Vector3.new(0.3, 2.5, 0.3),
-            Vector3.new(px, KIOSK_GROUND + 1.6 + 1.25, pz), C.kioskTop, Enum.Material.Neon)
+        -- 番線ポール（番線色 Neon、高さ 3.5 stud）
+        local poleH = 3.5
+        mkP(cp, "Pole", Vector3.new(0.3, poleH, 0.3),
+            Vector3.new(px, KIOSK_GROUND + 1.6 + poleH / 2, pz),
+            TRACK_COLORS[t], Enum.Material.Neon)
 
-        -- トグル状態 BillboardGui（本体上・番線番号込み）
+        -- BillboardGui 1枚のみ（番線色背景・状態テキスト込み・100 stud 先から見える）
         local togBbg = Instance.new("BillboardGui")
-        togBbg.Size        = UDim2.fromOffset(150, 38)
-        togBbg.StudsOffset = Vector3.new(0, 1.5, 0)
-        togBbg.MaxDistance = 20
+        togBbg.Size        = UDim2.fromOffset(180, 50)
+        togBbg.StudsOffset = Vector3.new(0, 4.5, 0)
+        togBbg.MaxDistance = 100
         togBbg.Parent      = body
         local toggleLbl = Instance.new("TextLabel")
         toggleLbl.Size                   = UDim2.fromScale(1, 1)
-        toggleLbl.BackgroundColor3       = C.btnBlue
+        toggleLbl.BackgroundColor3       = TRACK_COLORS[t]
         toggleLbl.BackgroundTransparency = 0
         toggleLbl.Text                   = t .. "番線を出す"
         toggleLbl.TextColor3             = Color3.fromRGB(255, 255, 255)
-        toggleLbl.TextSize               = 14
+        toggleLbl.TextSize               = 22
         toggleLbl.Font                   = Enum.Font.GothamBold
         toggleLbl.Parent                 = togBbg
-        local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(0, 5); tc.Parent = toggleLbl
+        local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(0, 6); tc.Parent = toggleLbl
 
         trackBtnLabels[t] = toggleLbl
         trackBtnParts[t]  = body
 
-        -- 本体をクリックで列車トグル
-        local cd = Instance.new("ClickDetector")
-        cd.MaxActivationDistance = 15
-        cd.Parent = body
         local capturedT = t
-        cd.MouseClick:Connect(function()
+
+        -- ProximityPrompt で列車トグル（E キー / モバイルタップ）
+        -- MaxActivationDistance=5 にして隣のキオスクのメッセージと重ならないようにする
+        local prompt = Instance.new("ProximityPrompt")
+        prompt.ActionText            = "列車を出す"
+        prompt.ObjectText            = t .. "番線"
+        prompt.KeyboardKeyCode       = Enum.KeyCode.E
+        prompt.MaxActivationDistance = 5
+        prompt.RequiresLineOfSight   = false
+        prompt.HoldDuration          = 0
+        prompt.Parent                = body
+        trackBtnPrompts[t] = prompt
+        prompt.Triggered:Connect(function(_player)
             if trainModels[capturedT] then storeTrain(capturedT)
             else buildTrain(capturedT) end
         end)
