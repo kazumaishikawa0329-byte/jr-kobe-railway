@@ -419,54 +419,6 @@ interiorLabel.Font                   = Enum.Font.GothamBold
 interiorLabel.Parent                 = interiorGui
 local ilc = Instance.new("UICorner"); ilc.CornerRadius = UDim.new(0, 6); ilc.Parent = interiorLabel
 
--- 車内「降車」ボタン（ドアが開いているときに表示）
-local interiorExitBtn = Instance.new("TextButton")
-interiorExitBtn.Size             = UDim2.fromOffset(110, 36)
-interiorExitBtn.Position         = UDim2.new(0.5, -55, 0, 52)
-interiorExitBtn.BackgroundColor3       = Color3.fromRGB(120, 15, 15)
-interiorExitBtn.BackgroundTransparency = 0.2
-interiorExitBtn.BorderSizePixel  = 0
-interiorExitBtn.Text             = "降車する"
-interiorExitBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
-interiorExitBtn.TextSize         = 14
-interiorExitBtn.Font             = Enum.Font.GothamBold
-interiorExitBtn.Visible          = false
-interiorExitBtn.Parent           = interiorGui
-local iec = Instance.new("UICorner"); iec.CornerRadius = UDim.new(0, 6); iec.Parent = interiorExitBtn
-
--- 降車: キャラクターをドア外側にテレポート
-interiorExitBtn.MouseButton1Click:Connect(function()
-    local char = player.Character
-    if not char then return end
-    local root = char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    -- 最も近い列車のドア位置に出す
-    local rwFolder = workspace:FindFirstChild("RailwayTest")
-    if not rwFolder then return end
-    local bestPos = nil
-    local bestDist = math.huge
-    for t = 1, 4 do
-        local trainModel = rwFolder:FindFirstChild("Train_" .. t)
-        if not trainModel then continue end
-        for _, carModel in ipairs(trainModel:GetChildren()) do
-            if not carModel:IsA("Model") then continue end
-            local body = carModel:FindFirstChild("Body")
-            if not body then continue end
-            local bp = body.Position
-            local rp = root.Position
-            local dist = (Vector3.new(bp.X, rp.Y, bp.Z) - rp).Magnitude
-            if dist < bestDist then
-                bestDist = dist
-                -- 車体の右側（+X方向）に降車（CAR_FLOOR + 立ち上がり余裕）
-                bestPos = Vector3.new(bp.X + CAR_HALF_W + 1.5, CAR_FLOOR + 2.5, bp.Z)
-            end
-        end
-    end
-    if bestPos then
-        root.CFrame = CFrame.new(bestPos)
-    end
-end)
 
 -- ============================================================
 -- 車内モード 透明化管理
@@ -543,10 +495,6 @@ evtDoorState.OnClientEvent:Connect(function(trackNum, isOpen)
             doorBtnClose.BackgroundColor3 = Color3.fromRGB(200, 60, 0)
         end
         updateAccelBtn(isOpen)
-    end
-    -- 降車ボタン可否
-    if isInInterior then
-        interiorExitBtn.Visible = isOpen
     end
     -- 開閉音を再生（最初の3秒をスキップ）
     if isOpen then
@@ -628,14 +576,6 @@ RunService.Heartbeat:Connect(function(dt)
 
     setInteriorMode(foundInside)
 
-    -- 降車ボタン: 最寄り車両のドアが開いているときのみ表示
-    if isInInterior then
-        local anyDoorOpen = false
-        for t, open in pairs(doorOpenStates) do
-            if open then anyDoorOpen = true; break end
-        end
-        interiorExitBtn.Visible = anyDoorOpen
-    end
 end)
 
 -- ============================================================

@@ -414,8 +414,9 @@ local function buildCar(parent, idx, cz, hasFront, hasRear, doorList)
         seat.BottomSurface = Enum.SurfaceType.Smooth
         seat.Parent        = car
 
-        -- ドアが開いた状態で近づくと自動着席（Eボタン不要）
-        -- 初期はドアが閉まっているため Disabled=true、setDoorState で切り替える
+        -- dirZ==1 は大阪方面（電車止め側）= 進行方向に駅なし → 常時乗車不可
+        -- dirZ==-1 は網干方面（通常進行方向）= ドア連動で有効化
+        seat.Name     = dirZ == 1 and "DriverSeatEnd" or "DriverSeat"
         seat.Disabled = true
     end
 
@@ -452,7 +453,8 @@ local function setDoorState(trackNum, isOpen)
         end
     end
 
-    -- ドア状態に合わせて DriverSeat の有効/無効を切り替え
+    -- DriverSeat（進行方向側）のみドア連動で有効/無効を切り替え
+    -- DriverSeatEnd（電車止め側）は常時 Disabled=true のまま変更しない
     local model = trainModels[trackNum]
     if model then
         for _, desc in ipairs(model:GetDescendants()) do
