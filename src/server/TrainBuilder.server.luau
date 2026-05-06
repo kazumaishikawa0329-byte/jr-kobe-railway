@@ -3,6 +3,7 @@
 local Workspace         = game:GetService("Workspace")
 local RunService        = game:GetService("RunService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService      = game:GetService("TweenService")
 
 local OFFSET    = Vector3.new(40, 0, 0)   -- RailwayTestBuilder と同一
 local RW_FOLDER = "RailwayTest"
@@ -17,7 +18,8 @@ local NCARS   = 4
 
 local C = {
     body     = Color3.fromRGB(196, 198, 194),
-    door     = Color3.fromRGB(186, 188, 184),
+    door     = Color3.fromRGB(168, 172, 178),  -- ドアパネル（車体よりやや濃いシルバー）
+    doorWin  = Color3.fromRGB(22,  28,  45),   -- ドア窓ガラス
     stripe   = Color3.fromRGB(0,   82,  160),
     window   = Color3.fromRGB(22,  28,  45),
     sill     = Color3.fromRGB(55,  60,  72),
@@ -29,59 +31,71 @@ local C = {
     dest     = Color3.fromRGB(225, 145, 0),
     coupler  = Color3.fromRGB(75,  75,  75),
     seat     = Color3.fromRGB(38,  48,  72),
-    boarding = Color3.fromRGB(240, 185, 0),    -- 乗車マーカー（黄）
-    kiosk    = Color3.fromRGB(28,  34,  50),   -- キオスク本体
-    kioskTop = Color3.fromRGB(0,   180, 255),  -- キオスク上部（Neon）
+    boarding = Color3.fromRGB(240, 185, 0),
+    kiosk    = Color3.fromRGB(28,  34,  50),
+    kioskTop = Color3.fromRGB(0,   180, 255),
     btnBlue  = Color3.fromRGB(0,   95,  175),
     btnDark  = Color3.fromRGB(50,  50,  62),
     screen   = Color3.fromRGB(8,   12,  20),
 }
 
--- 列車制御 RemoteEvent（クライアント接続前に即時作成）
+-- 列車制御 RemoteEvent
 local remotesFolder = Instance.new("Folder")
 remotesFolder.Name   = "TrainRemotes"
 remotesFolder.Parent = ReplicatedStorage
 local evtSetDir   = Instance.new("RemoteEvent"); evtSetDir.Name   = "SetDirection"; evtSetDir.Parent = remotesFolder
 local evtSetCtrl  = Instance.new("RemoteEvent"); evtSetCtrl.Name  = "SetControl";   evtSetCtrl.Parent = remotesFolder
 local evtSpeedUpd = Instance.new("RemoteEvent"); evtSpeedUpd.Name = "SpeedUpdate";  evtSpeedUpd.Parent = remotesFolder
+local evtDoorCtrl = Instance.new("RemoteEvent"); evtDoorCtrl.Name = "DoorControl";  evtDoorCtrl.Parent = remotesFolder
+local evtDoorState= Instance.new("RemoteEvent"); evtDoorState.Name= "DoorState";    evtDoorState.Parent= remotesFolder
 
 local rwFolder    = nil
 local statusLabel = nil
 
 -- Per-track 列車状態
 local NUM_TRACKS     = 4
-local trainModels    = {}   -- [trackNum] = Model or nil
-local trainPartsList = {}   -- [trackNum] = {BasePart,...}
+local trainModels    = {}
+local trainPartsList = {}
 
--- Per-track 運行状態
 local trainSpeeds = {}; local trainDirs = {}; local trainCtrls = {}
 for t = 1, 4 do
     trainSpeeds[t] = 0; trainDirs[t] = 0; trainCtrls[t] = "加速停止"
 end
 
-local MAX_SPEED  = 130   -- km/h
-local ACCEL_RATE = 15    -- km/h/s
-local BRAKE_RATE = 12    -- km/h/s（通常ブレーキ・惰行）
-local EMERG_RATE = 45    -- km/h/s（急ブレーキ）
+-- ドア状態
+local trainDoorOpen  = {}
+local trainDoorParts = {}   -- [trackNum] = { {part=Part, openDir=number}, ... }
+for t = 1, 4 do
+    trainDoorOpen[t]  = false
+    trainDoorParts[t] = {}
+end
 
--- ClickDetector コールバックから参照するため前方宣言
+local MAX_SPEED  = 130
+local ACCEL_RATE = 15
+local BRAKE_RATE = 12
+local EMERG_RATE = 45
+local DOOR_SLIDE = 1.5   -- 片側パネルのスライド量（stud）
+local DOOR_TWEEN = TweenInfo.new(1.8, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut)
+-- ドア寸法定数
+local DOOR_W  = 2.4          -- 開口幅（両パネル合計、stud）
+local DOOR_H  = CHGT * 0.82  -- ドア高さ（≈ 4.92 stud）
+local PNL_W   = DOOR_W / 2   -- 片側パネル幅（1.2 stud）
+local DOOR_ZS = { -9, -3, 3, 9 }  -- ドア中心オフセット（Z）
+
 local buildTrain
 local storeTrain
 
--- トグルボタン参照（buildTrain/storeTrain からラベル・パーツ色・プロンプトを更新）
 local trackBtnLabels  = {}
 local trackBtnParts   = {}
 local trackBtnPrompts = {}
 
--- 番線別カラー（storeTrain/buildTrain/buildTrackPanels で共通使用）
 local TRACK_COLORS = {
-    Color3.fromRGB(0,   82, 160),   -- 1番線: JR ブルー
-    Color3.fromRGB(0,  150,  60),   -- 2番線: グリーン
-    Color3.fromRGB(200,  90,   0),  -- 3番線: オレンジ
-    Color3.fromRGB(180,   0,   0),  -- 4番線: レッド
+    Color3.fromRGB(0,   82, 160),
+    Color3.fromRGB(0,  150,  60),
+    Color3.fromRGB(200,  90,   0),
+    Color3.fromRGB(180,   0,   0),
 }
 
--- 指定番線のスポーンマーカーから位置シフトを返す（共通処理）
 local function getSpawnShift(trackNum)
     local mark = rwFolder and rwFolder:FindFirstChild("TrackSpawn_" .. trackNum)
     if not mark then return Vector3.zero end
@@ -121,24 +135,23 @@ local function addText(part, face, text, color)
 end
 
 -- ============================================================
--- 1両の構築
+-- 1両の構築  doorList: ドアパーツ情報を格納するテーブル
 -- ============================================================
-local function buildCar(parent, idx, cz, hasFront, hasRear)
+local function buildCar(parent, idx, cz, hasFront, hasRear, doorList)
     local car = Instance.new("Model")
     car.Name   = "Car" .. idx
     car.Parent = parent
 
     local cy = CBOT + CHGT / 2
 
-    -- 車体・屋根・スカート（車体は内部に入れるよう非コリジョン）
     local body = mkP(car, "Body",      Vector3.new(CWID, CHGT, CLEN),         Vector3.new(0, cy, cz),              C.body)
-    body.CanCollide = false
+    body.CanCollide   = false
+    body.Transparency = 1   -- 壁セグメントが外観を担うため不可視化（ドア越しに反対側が見える）
     mkP(car, "Roof",      Vector3.new(CWID, 0.55, CLEN),         Vector3.new(0, CBOT+CHGT+0.27, cz),  C.roof)
     local skirt = mkP(car, "Skirt", Vector3.new(CWID+0.3, 0.65, CLEN+0.1), Vector3.new(0, CBOT-0.325, cz), C.skirt)
     skirt.CanCollide = false
     mkP(car, "RoofEquip", Vector3.new(1.2, 0.38, 3.0),           Vector3.new(0, CBOT+CHGT+0.47, cz-5),C.skirt)
 
-    -- パンタグラフ（M車: Car1・Car3）
     if idx == 1 or idx == 3 then
         local py = CBOT + CHGT + 0.55
         mkP(car, "PantBase",    Vector3.new(1.6, 0.22, 0.9),       Vector3.new(0, py+0.11, cz+5), C.skirt)
@@ -151,23 +164,116 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         local sx  = s * (CWID / 2 + 0.07)
         local tag = s < 0 and "L" or "R"
         local sdFace = s < 0 and Enum.NormalId.Left or Enum.NormalId.Right
-        mkP(car, "Stripe"..tag,  Vector3.new(0.11, 0.95, CLEN),          Vector3.new(sx, CBOT+1.35, cz),        C.stripe)
-        mkP(car, "WinBand"..tag, Vector3.new(0.11, CHGT*0.43, CLEN-0.4), Vector3.new(sx, CBOT+CHGT*0.685, cz), C.window)
-        mkP(car, "Sill"..tag,    Vector3.new(0.11, 0.18, CLEN),          Vector3.new(sx, CBOT+CHGT*0.455, cz), C.sill)
-        for d, doff in ipairs({ -9, -3, 3, 9 }) do
-            mkP(car, "Door"..tag..d, Vector3.new(0.1, CHGT*0.70, 1.65),
-                Vector3.new(sx, CBOT+CHGT*0.35, cz+doff), C.door)
+
+        -- ──── 視覚デコレーション（ドア開口をスキップしてセグメント化）────
+        local function buildStripes(name, height, centerY, color)
+            local prev = cz - CLEN/2
+            for si, dz_off in ipairs(DOOR_ZS) do
+                local segEnd = cz + dz_off - PNL_W
+                local segLen = segEnd - prev
+                if segLen > 0.05 then
+                    local p = mkP(car, name..tag..si, Vector3.new(0.11, height, segLen),
+                        Vector3.new(sx, centerY, prev + segLen/2), color)
+                    p.CanCollide = false
+                end
+                prev = cz + dz_off + PNL_W
+            end
+            local lastLen = (cz + CLEN/2) - prev
+            if lastLen > 0.05 then
+                local p = mkP(car, name..tag.."5", Vector3.new(0.11, height, lastLen),
+                    Vector3.new(sx, centerY, prev + lastLen/2), color)
+                p.CanCollide = false
+            end
         end
 
-        -- 側面行先表示板（種別＋行先を大きく表示）
-        local sdx = s * (CWID / 2 + 0.09)   -- 他の側面パーツより 0.02 外側
+        buildStripes("WinBand", CHGT*0.43, CBOT+CHGT*0.685, C.window)
+        buildStripes("Stripe",  0.95,       CBOT+1.35,        C.stripe)
+        buildStripes("Sill",    0.18,       CBOT+CHGT*0.455,  C.sill)
+
+        -- ──── コリジョン壁（ドア開口以外の側壁）────
+        -- 上部帯：ドア上端〜屋根、全幅
+        local upperH = CHGT - DOOR_H
+        local wTop = mkP(car, "WallTop"..tag,
+            Vector3.new(0.18, upperH, CLEN),
+            Vector3.new(sx, CBOT + DOOR_H + upperH/2, cz), C.body)
+        wTop.CanCollide = true
+
+        -- ドア高さ帯の壁セグメント（開口以外）
+        local prevZ = cz - CLEN/2
+        for wi, dz_off in ipairs(DOOR_ZS) do
+            local openL  = cz + dz_off - PNL_W
+            local segLen = openL - prevZ
+            if segLen > 0.05 then
+                local seg = mkP(car, "Wall"..tag..wi,
+                    Vector3.new(0.18, DOOR_H, segLen),
+                    Vector3.new(sx, CBOT + DOOR_H/2, prevZ + segLen/2), C.body)
+                seg.CanCollide = true
+            end
+            prevZ = cz + dz_off + PNL_W
+        end
+        local lastLen = (cz + CLEN/2) - prevZ
+        if lastLen > 0.05 then
+            local seg = mkP(car, "Wall"..tag.."5",
+                Vector3.new(0.18, DOOR_H, lastLen),
+                Vector3.new(sx, CBOT + DOOR_H/2, prevZ + lastLen/2), C.body)
+            seg.CanCollide = true
+        end
+
+        -- ──── ドア構造（両開き引き戸）────
+        for di, dz_off in ipairs(DOOR_ZS) do
+            local dz = cz + dz_off
+
+            -- ドア枠：上部バー
+            mkP(car, "DoorFrame"..tag..di,
+                Vector3.new(0.22, 0.32, DOOR_W + 0.24),
+                Vector3.new(sx, CBOT + DOOR_H + 0.16, dz), C.sill)
+
+            -- ドア枠：左右縦ピラー
+            for _, pSide in ipairs({ -1, 1 }) do
+                mkP(car, "DoorPillar"..tag..di..(pSide<0 and "L" or "R"),
+                    Vector3.new(0.22, DOOR_H, 0.24),
+                    Vector3.new(sx, CBOT + DOOR_H/2, dz + pSide*(PNL_W + 0.12)), C.sill)
+            end
+
+            -- Aパネル（−Z 側、−Z 方向へスライド）
+            local pa = mkP(car, "Door"..tag..di.."A",
+                Vector3.new(0.18, DOOR_H * 0.62, PNL_W),
+                Vector3.new(sx, CBOT + DOOR_H * 0.31, dz - PNL_W/2), C.door)
+            pa.CanCollide = true
+            -- Aパネル上部ガラス
+            local paG = mkP(car, "DoorGlass"..tag..di.."A",
+                Vector3.new(0.14, DOOR_H * 0.35, PNL_W - 0.1),
+                Vector3.new(sx, CBOT + DOOR_H * 0.31 + DOOR_H * 0.62/2 + DOOR_H*0.35/2 - 0.05, dz - PNL_W/2), C.doorWin)
+            paG.CanCollide = false
+            if doorList then
+                table.insert(doorList, { part = pa,  openDir = -1, collidable = true  })
+                table.insert(doorList, { part = paG, openDir = -1, collidable = false })
+            end
+
+            -- Bパネル（+Z 側、+Z 方向へスライド）
+            local pb = mkP(car, "Door"..tag..di.."B",
+                Vector3.new(0.18, DOOR_H * 0.62, PNL_W),
+                Vector3.new(sx, CBOT + DOOR_H * 0.31, dz + PNL_W/2), C.door)
+            pb.CanCollide = true
+            -- Bパネル上部ガラス
+            local pbG = mkP(car, "DoorGlass"..tag..di.."B",
+                Vector3.new(0.14, DOOR_H * 0.35, PNL_W - 0.1),
+                Vector3.new(sx, CBOT + DOOR_H * 0.31 + DOOR_H * 0.62/2 + DOOR_H*0.35/2 - 0.05, dz + PNL_W/2), C.doorWin)
+            pbG.CanCollide = false
+            if doorList then
+                table.insert(doorList, { part = pb,  openDir = 1,  collidable = true  })
+                table.insert(doorList, { part = pbG, openDir = 1,  collidable = false })
+            end
+        end
+
+        -- 側面行先表示板
+        local sdx = s * (CWID / 2 + 0.09)
         local sdPart = mkP(car, "SideDest"..tag,
             Vector3.new(0.12, 1.5, 5.0),
             Vector3.new(sdx, CBOT + CHGT * 0.81, cz - 2), C.screen)
         local sg = Instance.new("SurfaceGui")
         sg.Face   = sdFace
         sg.Parent = sdPart
-        -- 種別（上 42%）：青背景・白文字
         local kindFr = Instance.new("Frame")
         kindFr.Size             = UDim2.new(1, 0, 0.42, 0)
         kindFr.BackgroundColor3 = Color3.fromRGB(0, 60, 160)
@@ -181,7 +287,6 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         kindLbl.TextScaled             = true
         kindLbl.Font                   = Enum.Font.GothamBold
         kindLbl.Parent                 = kindFr
-        -- 行先（下 58%）：黒背景・アンバー文字
         local destFr = Instance.new("Frame")
         destFr.Size             = UDim2.new(1, 0, 0.58, 0)
         destFr.Position         = UDim2.new(0, 0, 0.42, 0)
@@ -198,6 +303,46 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         destLbl.Parent                 = destFr
     end
 
+    -- ============================================================
+    -- 車内（ドアを開けると見える内装）
+    -- ============================================================
+    -- 内装床（キャラクターが立てる・車幅いっぱい）
+    local iFloor = mkP(car, "InteriorFloor",
+        Vector3.new(CWID - 0.4, 0.18, CLEN - 0.4),
+        Vector3.new(0, CBOT + 0.09, cz), Color3.fromRGB(92, 86, 76))
+    iFloor.CanCollide = true
+    iFloor.Material   = Enum.Material.SmoothPlastic
+
+    -- 内装天井（視覚）
+    local iCeil = mkP(car, "InteriorCeil",
+        Vector3.new(CWID - 0.4, 0.16, CLEN - 0.4),
+        Vector3.new(0, CBOT + CHGT - 0.08, cz), Color3.fromRGB(225, 222, 215))
+    iCeil.CanCollide = false
+
+    -- ロングシート（左右）
+    for _, ss in ipairs({ -1, 1 }) do
+        local stag = ss < 0 and "L" or "R"
+        local sbx  = ss * (CWID/2 - 0.56)
+        -- 座面
+        local seat = mkP(car, "LongSeat"..stag,
+            Vector3.new(0.85, 0.35, CLEN * 0.70),
+            Vector3.new(sbx, CBOT + 0.175, cz), C.seat)
+        seat.CanCollide = true
+        -- 背もたれ
+        local back = mkP(car, "SeatBack"..stag,
+            Vector3.new(0.12, 0.55, CLEN * 0.70),
+            Vector3.new(sbx - ss*0.37, CBOT + 0.55, cz), C.seat)
+        back.CanCollide = false
+    end
+
+    -- 吊り手棒（天井パイプ）
+    for _, hz in ipairs({ cz - 5, cz + 5 }) do
+        local pole = mkP(car, "HoldBar"..math.floor(hz),
+            Vector3.new(0.1, 0.1, CLEN * 0.80),
+            Vector3.new(0, CBOT + CHGT - 0.55, hz), C.sill)
+        pole.CanCollide = false
+    end
+
     -- 妻面
     local function buildEnd(dirZ)
         local fz   = cz + dirZ * (CLEN / 2)
@@ -211,7 +356,6 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         mkP(car, "Shield"..tag,  Vector3.new(CWID*0.58, CHGT*0.33, tk+0.1),
             Vector3.new(0, CBOT+CHGT*0.71, fz+dirZ*tk), C.window)
 
-        -- 正面行先表示（2段LED：種別＋行先）
         local dp = mkP(car, "Dest"..tag, Vector3.new(CWID*0.55, 1.1, tk+0.06),
             Vector3.new(0, CBOT+CHGT*0.62, fz+dirZ*tk), C.dest)
         local dpSg = Instance.new("SurfaceGui"); dpSg.Face = face; dpSg.Parent = dp
@@ -245,21 +389,18 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
     if hasFront then buildEnd(-1) end
     if hasRear  then buildEnd(1)  end
 
-    -- 乗務員室（前方・後方どちらにも対応）
+    -- 乗務員室
     local function buildCab(dirZ)
-        local faceZ   = cz + dirZ * (CLEN / 2)    -- 妻面Z（ローカル）
-        local markerZ = faceZ + dirZ * 2.2         -- 車体外側 2.2 stud
+        local faceZ   = cz + dirZ * (CLEN / 2)
+        local markerZ = faceZ + dirZ * 2.2
 
-        -- 地面の乗車マーカー（黄色プレート）
         local marker = mkP(car, "BoardMarker"..(dirZ < 0 and "F" or "R"),
             Vector3.new(2.8, 0.22, 2.8),
             Vector3.new(0, 0.11, markerZ), C.boarding)
 
-        -- 乗車案内テキスト（Top面に「乗車口」）
         addText(marker, Enum.NormalId.Top, "乗車口 ▲", Color3.fromRGB(0, 0, 0))
 
-        -- DriverSeat（車内・運転台付近）
-        local seatZ = faceZ - dirZ * 2.5   -- 妻面から2.5 stud 内側
+        local seatZ = faceZ - dirZ * 2.5
         local seat = Instance.new("Seat")
         seat.Name          = "DriverSeat"
         seat.Size          = Vector3.new(1.8, 0.5, 1.8)
@@ -273,26 +414,68 @@ local function buildCar(parent, idx, cz, hasFront, hasRear)
         seat.BottomSurface = Enum.SurfaceType.Smooth
         seat.Parent        = car
 
-        -- ProximityPrompt（マーカー上、プレイヤーが近づいて E で乗車）
-        local prompt = Instance.new("ProximityPrompt")
-        prompt.ActionText            = "乗車する"
-        prompt.ObjectText            = "運転席"
-        prompt.KeyboardKeyCode       = Enum.KeyCode.E
-        prompt.MaxActivationDistance = 7
-        prompt.RequiresLineOfSight   = false
-        prompt.HoldDuration          = 0
-        prompt.Parent                = marker
-
-        prompt.Triggered:Connect(function(player)
-            local char = player.Character
-            if not char then return end
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            if hum then seat:Sit(hum) end
-        end)
+        -- dirZ==1 は大阪方面（電車止め側）= 進行方向に駅なし → 常時乗車不可
+        -- dirZ==-1 は網干方面（通常進行方向）= ドア連動で有効化
+        seat.Name     = dirZ == 1 and "DriverSeatEnd" or "DriverSeat"
+        seat.Disabled = true
     end
 
-    if hasFront then buildCab(-1) end   -- Car1 前方
-    if hasRear  then buildCab(1)  end   -- Car4 後方
+    if hasFront then buildCab(-1) end
+    if hasRear  then buildCab(1)  end
+end
+
+
+-- ============================================================
+-- ドア開閉
+-- ============================================================
+local function setDoorState(trackNum, isOpen)
+    if trainDoorOpen[trackNum] == isOpen then return end
+    trainDoorOpen[trackNum] = isOpen
+
+    local parts = trainDoorParts[trackNum]
+    if parts then
+        for _, info in ipairs(parts) do
+            local p = info.part
+            if not p or not p.Parent then continue end
+            if isOpen then
+                p.CanCollide = false
+                local targetPos = p.Position + Vector3.new(0, 0, info.openDir * DOOR_SLIDE)
+                TweenService:Create(p, DOOR_TWEEN, {Position = targetPos}):Play()
+            else
+                local targetPos = p.Position - Vector3.new(0, 0, info.openDir * DOOR_SLIDE)
+                local tw = TweenService:Create(p, DOOR_TWEEN, {Position = targetPos})
+                tw:Play()
+                local origCollide = info.collidable ~= nil and info.collidable or true
+                tw.Completed:Connect(function()
+                    if p and p.Parent then p.CanCollide = origCollide end
+                end)
+            end
+        end
+    end
+
+    -- DriverSeat（進行方向側）のみドア連動で有効/無効を切り替え
+    -- DriverSeatEnd（電車止め側）は常時 Disabled=true のまま変更しない
+    local model = trainModels[trackNum]
+    if model then
+        for _, desc in ipairs(model:GetDescendants()) do
+            if desc:IsA("Seat") and desc.Name == "DriverSeat" then
+                if isOpen then
+                    desc.Disabled = false
+                elseif not desc.Occupant then
+                    -- 着席中のプレイヤーがいる場合は無効化しない（強制降車防止）
+                    desc.Disabled = true
+                end
+            end
+        end
+    end
+
+    -- ドアが開いた瞬間に走行中なら緊急制動
+    if isOpen and trainSpeeds[trackNum] > 0 then
+        trainCtrls[trackNum] = "急ブレーキ"
+    end
+
+    evtDoorState:FireAllClients(trackNum, isOpen)
+    print(string.format("[TrainBuilder] %d番線ドア%s", trackNum, isOpen and "開放" or "閉鎖"))
 end
 
 
@@ -304,8 +487,11 @@ storeTrain = function(trackNum)
         trainModels[trackNum]:Destroy()
         trainModels[trackNum]    = nil
         trainPartsList[trackNum] = nil
+        trainDoorOpen[trackNum]  = false
+        trainDoorParts[trackNum] = {}
         trainSpeeds[trackNum] = 0; trainDirs[trackNum] = 0; trainCtrls[trackNum] = "加速停止"
         evtSpeedUpd:FireAllClients(trackNum, 0)
+        evtDoorState:FireAllClients(trackNum, false)
         if trackBtnLabels[trackNum] then
             trackBtnLabels[trackNum].Text = trackNum .. "番線を出す"
             trackBtnLabels[trackNum].BackgroundColor3 = TRACK_COLORS[trackNum]
@@ -336,9 +522,10 @@ buildTrain = function(trackNum)
     train.Parent = rwFolder
     trainModels[trackNum] = train
 
+    local doorList = {}
     for i = 1, NCARS do
         local cz = (i - (NCARS + 1) / 2) * SPACING
-        buildCar(train, i, cz, i == 1, i == NCARS)
+        buildCar(train, i, cz, i == 1, i == NCARS, doorList)
     end
 
     local parts = {}
@@ -347,14 +534,19 @@ buildTrain = function(trackNum)
     end
     trainPartsList[trackNum] = parts
 
-    -- 番線スポーンマーカーへ位置合わせ（共通処理）
     local shift = getSpawnShift(trackNum)
     for _, part in ipairs(parts) do
         part.CFrame = part.CFrame + shift
     end
 
+    trainDoorOpen[trackNum]  = false
+    trainDoorParts[trackNum] = doorList
+
     trainSpeeds[trackNum] = 0; trainDirs[trackNum] = 0; trainCtrls[trackNum] = "加速停止"
     evtSpeedUpd:FireAllClients(trackNum, 0)
+
+    -- スポーン直後はドアを開放状態にする
+    task.defer(function() setDoorState(trackNum, true) end)
 
     if trackBtnLabels[trackNum] then
         trackBtnLabels[trackNum].Text = trackNum .. "番線を格納"
@@ -367,32 +559,27 @@ buildTrain = function(trackNum)
 end
 
 -- ============================================================
--- 番線別キオスク（クリック / ProximityPrompt でトグル：出す ↔ 格納する）
--- 大阪駅広場（4番線東側 ローカルX=32）に設置
+-- 番線別キオスク
 -- ============================================================
-local KIOSK_GROUND = 0.5   -- 広場コンクリート天面 Y
+local KIOSK_GROUND = 0.5
 
 local function buildTrackPanels()
     for t = 1, NUM_TRACKS do
-        local pz = 4530 + (t - 1) * 12  -- 番線ごとに 12 stud ずつずらす（ProximityPrompt が重ならないよう十分な間隔）
-        local px = 32                     -- 広場中央（プラットフォームとスポーンの間）
+        local pz = 4530 + (t - 1) * 12
+        local px = 32
 
         local cp = Instance.new("Model")
         cp.Name   = "TrackPanel_" .. t
         cp.Parent = rwFolder
 
-        -- キオスク本体（広場上：底 Y=0.5、高さ 1.6 → 中心 Y=1.3）
-        -- CanCollide を true のままにして ProximityPrompt が正常に動作するようにする
         local body = mkP(cp, "Body", Vector3.new(2.0, 1.6, 0.5),
             Vector3.new(px, KIOSK_GROUND + 0.8, pz), C.kiosk)
 
-        -- 番線ポール（番線色 Neon、高さ 3.5 stud）
         local poleH = 3.5
         mkP(cp, "Pole", Vector3.new(0.3, poleH, 0.3),
             Vector3.new(px, KIOSK_GROUND + 1.6 + poleH / 2, pz),
             TRACK_COLORS[t], Enum.Material.Neon)
 
-        -- BillboardGui 1枚のみ（番線色背景・状態テキスト込み・100 stud 先から見える）
         local togBbg = Instance.new("BillboardGui")
         togBbg.Size        = UDim2.fromOffset(180, 50)
         togBbg.StudsOffset = Vector3.new(0, 4.5, 0)
@@ -414,8 +601,6 @@ local function buildTrackPanels()
 
         local capturedT = t
 
-        -- ProximityPrompt で列車トグル（E キー / モバイルタップ）
-        -- MaxActivationDistance=5 にして隣のキオスクのメッセージと重ならないようにする
         local prompt = Instance.new("ProximityPrompt")
         prompt.ActionText            = "列車を出す"
         prompt.ObjectText            = t .. "番線"
@@ -434,17 +619,16 @@ end
 
 -- ============================================================
 -- 初期化
--- RailwayTestBuilder がフォルダを再生成し終わるまで待つ
 -- ============================================================
 repeat task.wait() until Workspace:FindFirstChild(RW_FOLDER)
     and Workspace:FindFirstChild(RW_FOLDER):FindFirstChild("Platform")
 
 rwFolder = Workspace:FindFirstChild(RW_FOLDER)
 
-buildTrackPanels()    -- 番線別トグルパネル（列車は格納状態で開始）
+buildTrackPanels()
 
 -- ============================================================
--- 列車制御イベント（クライアントからの操作を受信）
+-- 列車制御イベント
 -- ============================================================
 evtSetDir.OnServerEvent:Connect(function(_, trackNum, dirStr)
     if not trainDirs[trackNum] then return end
@@ -455,12 +639,20 @@ end)
 
 evtSetCtrl.OnServerEvent:Connect(function(_, trackNum, ctrl)
     if trainCtrls[trackNum] ~= nil then
+        -- ドアが開いている間は加速を受け付けない
+        if trainDoorOpen[trackNum] and ctrl == "加速" then return end
         trainCtrls[trackNum] = ctrl
     end
 end)
 
+evtDoorCtrl.OnServerEvent:Connect(function(_, trackNum, isOpen)
+    if trainModels[trackNum] and type(isOpen) == "boolean" then
+        setDoorState(trackNum, isOpen)
+    end
+end)
+
 -- ============================================================
--- 物理ループ（毎フレーム列車位置を更新）
+-- 物理ループ
 -- ============================================================
 local speedTimer = 0
 RunService.Heartbeat:Connect(function(dt)
@@ -476,7 +668,6 @@ RunService.Heartbeat:Connect(function(dt)
         local dir  = trainDirs[t]
         local ctrl = trainCtrls[t]
 
-        -- 番線ごとの速度変化
         if ctrl == "加速" and dir ~= 0 then
             spd = math.min(MAX_SPEED, spd + ACCEL_RATE * dt)
         elseif ctrl == "ブレーキ" then

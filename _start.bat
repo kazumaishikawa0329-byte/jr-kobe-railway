@@ -1,10 +1,16 @@
 @echo off
 chcp 65001 >nul
 
-set "PROJECT_DIR=D:\Roblox\JR神戸鉄道\project"
-set "PLACE_FILE=D:\Roblox\JR神戸鉄道\project\RobloxStudioData.rbxl"
+REM =========================
+REM 相対パス設定
+REM このbatファイルを project フォルダ内に置く
+REM =========================
+set "PROJECT_DIR=%~dp0"
+set "PLACE_FILE=%PROJECT_DIR%RobloxStudioData.rbxl"
 
 echo ===== 開発環境起動 =====
+echo PROJECT_DIR=%PROJECT_DIR%
+echo PLACE_FILE=%PLACE_FILE%
 
 if not exist "%PROJECT_DIR%" (
     echo Project folder not found:
@@ -52,45 +58,76 @@ timeout /t 2 >nul
 
 REM =========================
 REM Claude Code
+REM コマンドプロンプト版は起動しない
+REM Claudeアプリを起動し、プロジェクトパスをコピー
 REM =========================
-tasklist /FI "WINDOWTITLE eq Claude Code*" | find /I "Claude Code" >nul
-if errorlevel 1 (
-    echo Claude Code 起動
-    start "Claude Code" cmd /k "cd /d "%PROJECT_DIR%" && claude"
-) else (
-    echo Claude Code は既に起動済み
-)
+echo ClaudeアプリのClaude Codeを起動準備
+
+echo %PROJECT_DIR% | clip
+echo プロジェクトフォルダをクリップボードにコピーしました:
+echo %PROJECT_DIR%
+
+echo Claude 起動
+start "" "shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude"
+timeout /t 3 >nul
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $ws.AppActivate('Claude') | Out-Null"
+
+echo Claudeアプリの Code / Claude Code で、プロジェクトフォルダ選択時に Ctrl+V してください。
 
 REM =========================
-REM アプリ起動
+REM アプリ起動・前面表示
 REM =========================
 echo アプリ起動
 
-REM ChatGPT アプリ
-tasklist /FI "IMAGENAME eq ChatGPT.exe" | find /I "ChatGPT.exe" >nul
-if errorlevel 1 (
-    echo ChatGPT アプリ起動
-    start shell:AppsFolder\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT
-) else (
-    echo ChatGPT は既に起動済み
-)
+REM ChatGPT
+echo ChatGPT 起動
+start "" "shell:AppsFolder\OpenAI.ChatGPT-Desktop_2p2nqsd0c76g0!ChatGPT"
+timeout /t 3 >nul
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $ws.AppActivate('ChatGPT') | Out-Null"
 
-REM Claude アプリ
-tasklist /FI "IMAGENAME eq Claude.exe" | find /I "Claude.exe" >nul
-if errorlevel 1 (
-    echo Claude アプリ起動
-start shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude
-) else (
-    echo Claude は既に起動済み
-)
-
+REM Claude
+echo Claude 起動
+start "" "shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude"
+timeout /t 3 >nul
+powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $ws.AppActivate('Claude') | Out-Null"
 REM GitHub（リポジトリ）
 start "" https://github.com/kazumaishikawa0329-byte/jr-kobe-railway
 
 REM Roblox Creator Dashboard
 start "" https://create.roblox.com/
 
-
 echo ===== 起動完了 =====
 echo Roblox Studioで Rojo の Connect を押してください（localhost:34872）
 pause
+exit /b
+
+REM =========================
+REM Storeアプリを起動して前面表示する共通処理
+REM %1 = 表示名
+REM %2 = AppUserModelID
+REM %3 = プロセス名/タイトル検索文字
+REM =========================
+:LaunchAndFocus
+set "APP_NAME=%~1"
+set "APP_ID=%~2"
+set "APP_KEY=%~3"
+
+echo %APP_NAME% 起動・前面表示
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command ^
+"Add-Type -Name Win -Namespace Native -MemberDefinition '[DllImport(\"user32.dll\")] public static extern bool ShowWindowAsync(IntPtr hWnd, int nCmdShow); [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd);'; ^
+Start-Process explorer.exe 'shell:AppsFolder\%APP_ID%'; ^
+Start-Sleep -Milliseconds 2500; ^
+$end=(Get-Date).AddSeconds(10); ^
+do { ^
+  $p=Get-Process -ErrorAction SilentlyContinue | Where-Object { ($_.ProcessName -like '*%APP_KEY%*' -or $_.MainWindowTitle -like '*%APP_KEY%*') -and $_.MainWindowHandle -ne 0 } | Select-Object -First 1; ^
+  if($p){ [Native.Win]::ShowWindowAsync($p.MainWindowHandle,9) | Out-Null; Start-Sleep -Milliseconds 300; [Native.Win]::SetForegroundWindow($p.MainWindowHandle) | Out-Null; exit 0 } ^
+  Start-Sleep -Milliseconds 500 ^
+} while((Get-Date) -lt $end); ^
+exit 1"
+
+if errorlevel 1 (
+    echo %APP_NAME% の前面表示に失敗しました。手動でクリックしてください。
+)
+
+exit /b
