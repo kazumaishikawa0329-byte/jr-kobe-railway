@@ -618,11 +618,10 @@ local function buildSceneryGround(label, zFrom, zTo, xFrom, xTo, color, mat)
     local z = zFrom; local idx = 0
     while z < zTo do
         local seg = math.min(SEG_LEN, zTo - z)
-        local g = mkP(folder, "SGnd"..label..idx,
+        mkP(folder, "SGnd"..label..idx,
             Vector3.new(w, 0.2, seg),
             Vector3.new(xc, -0.1, z + seg/2),
             color, mat)
-        g.CanCollide = false
         z += seg; idx += 1
     end
 end
