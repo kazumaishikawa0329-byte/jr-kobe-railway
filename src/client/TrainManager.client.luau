@@ -516,8 +516,10 @@ evtSpeedUpd.OnClientEvent:Connect(function(trackNum, speed)
     -- 電動機音（着席中のみ）
     if currentSeatPart then
         if speed > 0 then
-            local t = speed / 130  -- 0〜1
-            sndMotor.Volume       = 0.1 + t * 0.7
+            local t       = speed / 130
+            local baseVol = 0.1 + t * 0.7
+            -- 加速中（前回より 0.5 km/h 以上増加）→ フル音量、定速/減速 → 1/6
+            sndMotor.Volume        = (speed > prevSpeed + 0.5) and baseVol or (baseVol / 6)
             sndMotor.PlaybackSpeed = 0.35 + t * 1.65
             if not sndMotor.IsPlaying then sndMotor:Play() end
         else
