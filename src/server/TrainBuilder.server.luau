@@ -85,16 +85,7 @@ local DOOR_ZS = { -9, -3, 3, 9 }  -- ドア中心オフセット（Z）
 local buildTrain
 local storeTrain
 
-local trackBtnLabels  = {}
-local trackBtnParts   = {}
-local trackBtnPrompts = {}
-
-local TRACK_COLORS = {
-    Color3.fromRGB(0,   82, 160),
-    Color3.fromRGB(0,  150,  60),
-    Color3.fromRGB(200,  90,   0),
-    Color3.fromRGB(180,   0,   0),
-}
+local fireTrainStateChanged = function() end  -- TrainStateChanged 発行用（末尾で定義）
 
 local function getSpawnShift(trackNum)
     local mark = rwFolder and rwFolder:FindFirstChild("TrackSpawn_" .. trackNum)
@@ -414,9 +405,8 @@ local function buildCar(parent, idx, cz, hasFront, hasRear, doorList)
         seat.BottomSurface = Enum.SurfaceType.Smooth
         seat.Parent        = car
 
-        -- dirZ==1 は大阪方面（電車止め側）= 進行方向に駅なし → 常時乗車不可
-        -- dirZ==-1 は網干方面（通常進行方向）= ドア連動で有効化
-        seat.Name     = dirZ == 1 and "DriverSeatEnd" or "DriverSeat"
+        -- 前後どちらの運転台からでも乗車可能
+        seat.Name     = "DriverSeat"
         seat.Disabled = true
     end
 
@@ -492,14 +482,8 @@ storeTrain = function(trackNum)
         trainSpeeds[trackNum] = 0; trainDirs[trackNum] = 0; trainCtrls[trackNum] = "加速停止"
         evtSpeedUpd:FireAllClients(trackNum, 0)
         evtDoorState:FireAllClients(trackNum, false)
-        if trackBtnLabels[trackNum] then
-            trackBtnLabels[trackNum].Text = trackNum .. "番線を出す"
-            trackBtnLabels[trackNum].BackgroundColor3 = TRACK_COLORS[trackNum]
-        end
-        if trackBtnPrompts[trackNum] then
-            trackBtnPrompts[trackNum].ActionText = "列車を出す"
-        end
         print(string.format("[TrainBuilder] %d番線の列車を格納しました。", trackNum))
+        fireTrainStateChanged(trackNum, false)
     end
     if statusLabel then
         local anyActive = false
@@ -548,74 +532,10 @@ buildTrain = function(trackNum)
     -- スポーン直後はドアを開放状態にする
     task.defer(function() setDoorState(trackNum, true) end)
 
-    if trackBtnLabels[trackNum] then
-        trackBtnLabels[trackNum].Text = trackNum .. "番線を格納"
-        trackBtnLabels[trackNum].BackgroundColor3 = C.btnDark
-    end
-    if trackBtnPrompts[trackNum] then
-        trackBtnPrompts[trackNum].ActionText = "列車を格納"
-    end
     print(string.format("[TrainBuilder] %d番線に223系2000番台を生成しました。", trackNum))
+    fireTrainStateChanged(trackNum, true)
 end
 
--- ============================================================
--- 番線別キオスク
--- ============================================================
-local KIOSK_GROUND = 0.5
-
-local function buildTrackPanels()
-    for t = 1, NUM_TRACKS do
-        local pz = 4530 + (t - 1) * 12
-        local px = 32
-
-        local cp = Instance.new("Model")
-        cp.Name   = "TrackPanel_" .. t
-        cp.Parent = rwFolder
-
-        local body = mkP(cp, "Body", Vector3.new(2.0, 1.6, 0.5),
-            Vector3.new(px, KIOSK_GROUND + 0.8, pz), C.kiosk)
-
-        local poleH = 3.5
-        mkP(cp, "Pole", Vector3.new(0.3, poleH, 0.3),
-            Vector3.new(px, KIOSK_GROUND + 1.6 + poleH / 2, pz),
-            TRACK_COLORS[t], Enum.Material.Neon)
-
-        local togBbg = Instance.new("BillboardGui")
-        togBbg.Size        = UDim2.fromOffset(180, 50)
-        togBbg.StudsOffset = Vector3.new(0, 4.5, 0)
-        togBbg.MaxDistance = 100
-        togBbg.Parent      = body
-        local toggleLbl = Instance.new("TextLabel")
-        toggleLbl.Size                   = UDim2.fromScale(1, 1)
-        toggleLbl.BackgroundColor3       = TRACK_COLORS[t]
-        toggleLbl.BackgroundTransparency = 0
-        toggleLbl.Text                   = t .. "番線を出す"
-        toggleLbl.TextColor3             = Color3.fromRGB(255, 255, 255)
-        toggleLbl.TextSize               = 22
-        toggleLbl.Font                   = Enum.Font.GothamBold
-        toggleLbl.Parent                 = togBbg
-        local tc = Instance.new("UICorner"); tc.CornerRadius = UDim.new(0, 6); tc.Parent = toggleLbl
-
-        trackBtnLabels[t] = toggleLbl
-        trackBtnParts[t]  = body
-
-        local capturedT = t
-
-        local prompt = Instance.new("ProximityPrompt")
-        prompt.ActionText            = "列車を出す"
-        prompt.ObjectText            = t .. "番線"
-        prompt.KeyboardKeyCode       = Enum.KeyCode.E
-        prompt.MaxActivationDistance = 5
-        prompt.RequiresLineOfSight   = false
-        prompt.HoldDuration          = 0
-        prompt.Parent                = body
-        trackBtnPrompts[t] = prompt
-        prompt.Triggered:Connect(function(_player)
-            if trainModels[capturedT] then storeTrain(capturedT)
-            else buildTrain(capturedT) end
-        end)
-    end
-end
 
 -- ============================================================
 -- 初期化
@@ -624,8 +544,6 @@ repeat task.wait() until Workspace:FindFirstChild(RW_FOLDER)
     and Workspace:FindFirstChild(RW_FOLDER):FindFirstChild("Platform")
 
 rwFolder = Workspace:FindFirstChild(RW_FOLDER)
-
-buildTrackPanels()
 
 -- ============================================================
 -- 列車制御イベント
@@ -692,3 +610,50 @@ RunService.Heartbeat:Connect(function(dt)
         end
     end
 end)
+
+-- ============================================================
+-- 自動運行向けサーバー間インターフェース（BindableEvent/Function）
+-- ============================================================
+local autoCtrlEvt = Instance.new("BindableEvent")
+autoCtrlEvt.Name   = "TrainAutoControl"
+autoCtrlEvt.Parent = ReplicatedStorage
+
+local autoQueryFn = Instance.new("BindableFunction")
+autoQueryFn.Name   = "TrainAutoQuery"
+autoQueryFn.Parent = ReplicatedStorage
+
+autoCtrlEvt.Event:Connect(function(trackNum, cmd, val)
+    if cmd == "SetDir" then
+        if trainDirs[trackNum] ~= nil then trainDirs[trackNum] = val end
+    elseif cmd == "SetCtrl" then
+        if trainCtrls[trackNum] ~= nil then
+            if not (trainDoorOpen[trackNum] and val == "加速") then
+                trainCtrls[trackNum] = val
+            end
+        end
+    elseif cmd == "SetDoor" then
+        if trainModels[trackNum] then setDoorState(trackNum, val) end
+    elseif cmd == "Build" then
+        buildTrain(trackNum)
+    elseif cmd == "Store" then
+        storeTrain(trackNum)
+    end
+end)
+
+autoQueryFn.OnInvoke = function(trackNum, query)
+    if query == "Speed"    then return trainSpeeds[trackNum]   or 0    end
+    if query == "DoorOpen" then return trainDoorOpen[trackNum] or false end
+    if query == "HasTrain" then return trainModels[trackNum]   ~= nil  end
+    return nil
+end
+
+-- ============================================================
+-- TrainStateChanged BindableEvent（スポーン/格納通知）
+-- ============================================================
+local trainStateChanged = Instance.new("BindableEvent")
+trainStateChanged.Name   = "TrainStateChanged"
+trainStateChanged.Parent = ReplicatedStorage
+
+fireTrainStateChanged = function(trackNum, hasTrain)
+    trainStateChanged:Fire(trackNum, hasTrain)
+end
