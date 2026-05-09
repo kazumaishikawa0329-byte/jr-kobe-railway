@@ -70,7 +70,7 @@ local function buildCar()
 
     -- ドライバーシート（Seat = 全パーツの基準 CFrame）
     local seat = Instance.new("Seat")
-    seat.Name          = "DriverSeat"
+    seat.Name          = "CarSeat"
     seat.Size          = Vector3.new(3.6, 0.5, 4.2)
     seat.CFrame        = baseCF
     seat.Anchored      = true
@@ -191,10 +191,19 @@ local function buildCar()
 
     -- ヘッドライト
     for _, sx in ipairs({-2.7, 2.7}) do
-        p("Head" .. (sx < 0 and "L" or "R"),
+        local headPart = p("Head" .. (sx < 0 and "L" or "R"),
             Vector3.new(2.0, 0.6, 0.4),
             baseCF * CFrame.new(sx, 0.22, -10.5),
             COL_HEAD, Enum.Material.Neon)
+        local hl = Instance.new("SpotLight")
+        hl.Name       = "NightLight"
+        hl.Brightness = 5
+        hl.Range      = 60
+        hl.Angle      = 45
+        hl.Color      = Color3.fromRGB(255, 248, 200)
+        hl.Face       = Enum.NormalId.Front
+        hl.Enabled    = false
+        hl.Parent     = headPart
     end
 
     -- テールライト
@@ -204,6 +213,19 @@ local function buildCar()
             baseCF * CFrame.new(sx, 0.25, 10.5),
             COL_TAIL, Enum.Material.Neon)
     end
+
+    -- 室内灯（夜間照明）
+    local intLamp = p("InteriorLamp", Vector3.new(0.1, 0.1, 0.1),
+        baseCF * CFrame.new(0, 1.6, 0),
+        Color3.fromRGB(255, 252, 220), Enum.Material.Neon)
+    intLamp.Transparency = 0.65
+    local il = Instance.new("PointLight")
+    il.Name       = "NightLight"
+    il.Brightness = 2.5
+    il.Range      = 18
+    il.Color      = Color3.fromRGB(255, 245, 200)
+    il.Enabled    = false
+    il.Parent     = intLamp
 
     -- ホイール 4本
     for _, w in ipairs({
@@ -245,6 +267,17 @@ local function buildCar()
     carSteer    = 0
 
     evtCarState:FireAllClients(true)
+
+    -- 夜間照明の初期状態を新しい車に同期
+    local nightVal = ReplicatedStorage:FindFirstChild("NightLightsOn")
+    if nightVal and nightVal.Value then
+        for _, desc in ipairs(carModel:GetDescendants()) do
+            if desc:IsA("Light") and desc.Name == "NightLight" then
+                desc.Enabled = true
+            end
+        end
+    end
+
     print("[CarManager] 車を生成しました")
 end
 
@@ -293,28 +326,29 @@ RunService.Heartbeat:Connect(function(dt)
         carThrottle = 0; carSteer = 0
     end
 
-    -- 速度更新
+    -- 速度更新（符号付き: 正=前進, 負=後退）
     if carThrottle > 0 then
         carSpeed = math.min(MAX_SPEED, carSpeed + ACCEL_RATE * dt)
     elseif carThrottle < 0 then
-        carSpeed = math.min(REV_SPEED, carSpeed + ACCEL_RATE * dt)
-    else
+        carSpeed = math.max(-REV_SPEED, carSpeed - ACCEL_RATE * dt)
+    elseif carSpeed > 0 then
         carSpeed = math.max(0, carSpeed - BRAKE_RATE * dt)
+    elseif carSpeed < 0 then
+        carSpeed = math.min(0, carSpeed + BRAKE_RATE * dt)
     end
 
-    if carSpeed <= 0 then return end
+    if carSpeed == 0 and carSteer == 0 then return end
 
-    -- ステアリング（速度に比例）
-    local speedFactor = math.min(1, carSpeed / 12) ^ 0.7
-    local turnAmt     = -carSteer * TURN_RATE * speedFactor * dt
-    carRootCF = carRootCF * CFrame.Angles(0, turnAmt, 0)
-
-    -- 前後移動（local -Z = 前進、local +Z = 後退）
-    if carThrottle > 0 then
-        carRootCF = carRootCF * CFrame.new(0, 0, -carSpeed * dt)
-    else
-        carRootCF = carRootCF * CFrame.new(0, 0,  carSpeed * dt)
+    -- ステアリング（速度の大きさに比例）
+    local absSpeed = math.abs(carSpeed)
+    if absSpeed > 0 then
+        local speedFactor = math.min(1, absSpeed / 12) ^ 0.7
+        local turnAmt = -carSteer * TURN_RATE * speedFactor * dt
+        carRootCF = carRootCF * CFrame.Angles(0, turnAmt, 0)
     end
+
+    -- 前後移動（符号付き速度: 正=前進/-Z, 負=後退/+Z）
+    carRootCF = carRootCF * CFrame.new(0, 0, -carSpeed * dt)
 
     -- 全パーツ CFrame 更新
     for _, entry in ipairs(carParts) do

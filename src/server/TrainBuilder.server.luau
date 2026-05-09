@@ -310,6 +310,22 @@ local function buildCar(parent, idx, cz, hasFront, hasRear, doorList)
         Vector3.new(0, CBOT + CHGT - 0.08, cz), Color3.fromRGB(225, 222, 215))
     iCeil.CanCollide = false
 
+    -- 室内灯（夜間: NightLight で制御）
+    for li, lzOff in ipairs({ -(CLEN / 3), 0, CLEN / 3 }) do
+        local lp = mkP(car, "IntLight" .. li, Vector3.new(0.18, 0.06, 0.18),
+            Vector3.new(0, CBOT + CHGT - 0.12, cz + lzOff),
+            Color3.fromRGB(255, 252, 228), Enum.Material.Neon)
+        lp.CanCollide   = false
+        lp.Transparency = 0.45
+        local pl = Instance.new("PointLight")
+        pl.Name       = "NightLight"
+        pl.Brightness = 3
+        pl.Range      = 20
+        pl.Color      = Color3.fromRGB(255, 248, 215)
+        pl.Enabled    = false
+        pl.Parent     = lp
+    end
+
     -- ロングシート（左右）
     for _, ss in ipairs({ -1, 1 }) do
         local stag = ss < 0 and "L" or "R"
@@ -368,8 +384,17 @@ local function buildCar(parent, idx, cz, hasFront, hasRear, doorList)
         for _, s in ipairs({ -1, 1 }) do
             local hx = s * CWID * 0.31
             local lt = s < 0 and "L" or "R"
-            mkP(car, "Head"..lt..tag, Vector3.new(1.1, 0.58, tk+0.12),
+            local headPart = mkP(car, "Head"..lt..tag, Vector3.new(1.1, 0.58, tk+0.12),
                 Vector3.new(hx, CBOT+CHGT*0.38, fz+dirZ*tk), C.headlamp)
+            local sl = Instance.new("SpotLight")
+            sl.Name       = "NightLight"
+            sl.Brightness = 4
+            sl.Range      = 80
+            sl.Angle      = 35
+            sl.Color      = Color3.fromRGB(255, 248, 210)
+            sl.Face       = dirZ < 0 and Enum.NormalId.Front or Enum.NormalId.Back
+            sl.Enabled    = false
+            sl.Parent     = headPart
             mkP(car, "Tail"..lt..tag, Vector3.new(0.75, 0.38, tk+0.1),
                 Vector3.new(hx, CBOT+CHGT*0.16, fz+dirZ*tk), C.taillamp)
         end
@@ -534,6 +559,16 @@ buildTrain = function(trackNum)
 
     -- スポーン直後はドアを開放状態にする
     task.defer(function() setDoorState(trackNum, true) end)
+
+    -- 夜間照明の初期状態を新しい列車に同期
+    local nightVal = ReplicatedStorage:FindFirstChild("NightLightsOn")
+    if nightVal and nightVal.Value then
+        for _, desc in ipairs(train:GetDescendants()) do
+            if desc:IsA("Light") and desc.Name == "NightLight" then
+                desc.Enabled = true
+            end
+        end
+    end
 
     print(string.format("[TrainBuilder] %d番線に223系2000番台を生成しました。", trackNum))
     fireTrainStateChanged(trackNum, true)

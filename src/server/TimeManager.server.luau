@@ -63,13 +63,20 @@ local PERIOD_CFG = {
 -- ── 夜間照明トグル ────────────────────────────────────────────
 local nightLightsState = nil
 
+-- 他スクリプトが夜間状態を取得できるよう BoolValue を公開
+local nightStatValue = Instance.new("BoolValue")
+nightStatValue.Name   = "NightLightsOn"
+nightStatValue.Value  = false
+nightStatValue.Parent = ReplicatedStorage
+
 local function toggleNightLights(enable)
     if nightLightsState == enable then return end
-    nightLightsState = enable
+    nightLightsState     = enable
+    nightStatValue.Value = enable
     local rwFolder = Workspace:FindFirstChild(RW_FOLDER)
     if not rwFolder then return end
     for _, desc in ipairs(rwFolder:GetDescendants()) do
-        if desc:IsA("PointLight") and desc.Name == "NightLight" then
+        if desc:IsA("Light") and desc.Name == "NightLight" then
             desc.Enabled = enable
         end
     end

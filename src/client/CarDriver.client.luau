@@ -19,7 +19,7 @@ local steer    = 0
 local hudGui   = nil
 
 -- ============================================================
--- HUD
+-- HUD（タッチD-pad + キーボードヒント）
 -- ============================================================
 local function showHUD()
     if hudGui then hudGui:Destroy() end
@@ -28,23 +28,107 @@ local function showHUD()
     hudGui.ResetOnSpawn = false
     hudGui.Parent       = gui
 
-    local f = Instance.new("Frame")
-    f.Size                   = UDim2.fromOffset(380, 48)
-    f.Position               = UDim2.new(0.5, -190, 1, -68)
-    f.BackgroundColor3       = Color3.fromRGB(10, 15, 35)
-    f.BackgroundTransparency = 0.28
-    f.BorderSizePixel        = 0
-    f.Parent                 = hudGui
-    local cr = Instance.new("UICorner"); cr.CornerRadius = UDim.new(0, 8); cr.Parent = f
+    local BTN = 82   -- タッチボタン 1辺
+    local GAP = 6
 
-    local lbl = Instance.new("TextLabel")
-    lbl.Size                   = UDim2.fromScale(1, 1)
-    lbl.BackgroundTransparency = 1
-    lbl.Text                   = "運転中  　W / S  前後  　A / D  左右  　Space  降車"
-    lbl.TextColor3             = Color3.fromRGB(100, 220, 255)
-    lbl.TextSize               = 15
-    lbl.Font                   = Enum.Font.GothamBold
-    lbl.Parent                 = f
+    -- ── タッチD-pad（左下）──────────────────────────────────────
+    --  配置:  [◀][↑][▶]
+    --             [↓]
+    local dpad = Instance.new("Frame")
+    dpad.Name                   = "DPad"
+    dpad.Size                   = UDim2.fromOffset(BTN * 3 + GAP * 2, BTN * 2 + GAP)
+    dpad.Position               = UDim2.new(0, 18, 1, -(BTN * 2 + GAP + 22))
+    dpad.BackgroundTransparency = 1
+    dpad.Parent                 = hudGui
+
+    local function mkDBtn(lbl, col, row)
+        local b = Instance.new("TextButton")
+        b.Size             = UDim2.fromOffset(BTN, BTN)
+        b.Position         = UDim2.fromOffset((BTN + GAP) * col, (BTN + GAP) * row)
+        b.BackgroundColor3 = Color3.fromRGB(18, 28, 62)
+        b.BackgroundTransparency = 0.30
+        b.BorderSizePixel  = 0
+        b.Text             = lbl
+        b.TextColor3       = Color3.fromRGB(175, 215, 255)
+        b.TextSize         = 36
+        b.Font             = Enum.Font.GothamBold
+        b.AutoButtonColor  = false
+        b.ZIndex           = 10
+        b.Parent           = dpad
+        local cr = Instance.new("UICorner"); cr.CornerRadius = UDim.new(0, 14); cr.Parent = b
+        return b
+    end
+
+    local upBtn    = mkDBtn("↑", 1, 0)
+    local leftBtn  = mkDBtn("◀", 0, 0)
+    local rightBtn = mkDBtn("▶", 2, 0)
+    local downBtn  = mkDBtn("↓", 1, 1)
+
+    -- ── 降車ボタン（右下）────────────────────────────────────────
+    local exitTouchBtn = Instance.new("TextButton")
+    exitTouchBtn.Size             = UDim2.fromOffset(112, BTN)
+    exitTouchBtn.Position         = UDim2.new(1, -(112 + 18), 1, -(BTN + 22))
+    exitTouchBtn.BackgroundColor3 = Color3.fromRGB(115, 16, 16)
+    exitTouchBtn.BackgroundTransparency = 0.25
+    exitTouchBtn.BorderSizePixel  = 0
+    exitTouchBtn.Text             = "降車"
+    exitTouchBtn.TextColor3       = Color3.fromRGB(255, 255, 255)
+    exitTouchBtn.TextSize         = 24
+    exitTouchBtn.Font             = Enum.Font.GothamBold
+    exitTouchBtn.AutoButtonColor  = false
+    exitTouchBtn.ZIndex           = 10
+    exitTouchBtn.Parent           = hudGui
+    local ec = Instance.new("UICorner"); ec.CornerRadius = UDim.new(0, 14); ec.Parent = exitTouchBtn
+
+    -- ── キーボードヒント（中央下・PC向け）────────────────────────
+    local hint = Instance.new("Frame")
+    hint.Size                   = UDim2.fromOffset(330, 38)
+    hint.Position               = UDim2.new(0.5, -165, 1, -50)
+    hint.BackgroundColor3       = Color3.fromRGB(10, 15, 35)
+    hint.BackgroundTransparency = 0.30
+    hint.BorderSizePixel        = 0
+    hint.Parent                 = hudGui
+    local hc = Instance.new("UICorner"); hc.CornerRadius = UDim.new(0, 8); hc.Parent = hint
+    local hLbl = Instance.new("TextLabel")
+    hLbl.Size                   = UDim2.fromScale(1, 1)
+    hLbl.BackgroundTransparency = 1
+    hLbl.Text                   = "W/S 前後  A/D 左右  Space 降車"
+    hLbl.TextColor3             = Color3.fromRGB(100, 200, 240)
+    hLbl.TextSize               = 14
+    hLbl.Font                   = Enum.Font.Gotham
+    hLbl.Parent                 = hint
+
+    -- ── タッチボタン入力処理 ──────────────────────────────────────
+    local function wireDirBtn(btn, thV, stV)
+        local function onDown()
+            if not driving then return end
+            if thV ~= 0 then throttle = thV end
+            if stV ~= 0 then steer    = stV end
+            sendInput()
+            btn.BackgroundTransparency = 0.05
+        end
+        local function onUp()
+            if not driving then return end
+            if thV ~= 0 then throttle = 0 end
+            if stV ~= 0 then steer    = 0 end
+            sendInput()
+            btn.BackgroundTransparency = 0.30
+        end
+        btn.MouseButton1Down:Connect(onDown)
+        btn.MouseButton1Up:Connect(onUp)
+        btn.MouseLeave:Connect(onUp)
+    end
+
+    wireDirBtn(upBtn,     1,  0)
+    wireDirBtn(downBtn,  -1,  0)
+    wireDirBtn(leftBtn,   0, -1)
+    wireDirBtn(rightBtn,  0,  1)
+
+    exitTouchBtn.Activated:Connect(function()
+        if not driving then return end
+        evtDismount:FireServer()
+        stopDriving()
+    end)
 end
 
 local function hideHUD()

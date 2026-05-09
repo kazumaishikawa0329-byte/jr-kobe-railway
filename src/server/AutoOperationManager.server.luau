@@ -48,7 +48,7 @@ local autoOpConfig = {}
 for t = 1, 4 do
     autoOpActive[t] = false
     trainPresent[t] = false
-    autoOpConfig[t] = {startIdx = 1, endIdx = #STATIONS}
+    autoOpConfig[t] = {startIdx = 1, endIdx = 2}
 end
 
 -- RemoteEvents
