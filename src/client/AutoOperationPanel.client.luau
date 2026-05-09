@@ -95,7 +95,11 @@ local function mkBtn(parent, text, bg, props)
     b.TextColor3       = Color3.fromRGB(255,255,255)
     b.Font             = Enum.Font.GothamBold
     b.TextSize         = 15
-    if props then for k,v in pairs(props) do b[k]=v end end
+    if props then
+        for k,v in pairs(props) do
+            if k ~= "r" then b[k]=v end  -- r は UICorner 用、TextButton プロパティとして設定しない
+        end
+    end
     b.Parent = parent
     corner(b, props and props.r or 7)
     return b
@@ -168,7 +172,7 @@ local function makeStationPicker(parent, getter, setter)
         btn.MouseLeave:Connect(function()        down = false end)
     end
 
-    return refresh
+    return refresh, fr
 end
 
 -- ============================================================
@@ -381,33 +385,20 @@ local function buildPanel(statuses, initialTrack, initTrainPresent, initConfigs)
             Size=UDim2.new(1,0,0,18), LayoutOrder=dlo(),
             TextColor3=Color3.fromRGB(150,172,215), TextSize=12,
             Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left})
-        local stPicker = makeStationPicker(dynSection,
+        local _, startFr = makeStationPicker(dynSection,
             function() return selStartIdx[t] end,
             function(v) selStartIdx[t] = v end)
-        dynSection:FindFirstChild("99") -- dummy
-        local spFrame = dynSection:GetChildren()
-        -- stPickerのLayoutOrderを修正
-        for _, c in ipairs(dynSection:GetChildren()) do
-            if c:IsA("Frame") and c.Name == "Frame" and c.Size == UDim2.new(1,0,0,36) then
-                c.LayoutOrder = dlo()
-                break
-            end
-        end
+        startFr.LayoutOrder = dlo()
 
         -- 終着駅
         mkLabel(dynSection, "終着駅", {
             Size=UDim2.new(1,0,0,18), LayoutOrder=dlo(),
             TextColor3=Color3.fromRGB(150,172,215), TextSize=12,
             Font=Enum.Font.GothamBold, TextXAlignment=Enum.TextXAlignment.Left})
-        makeStationPicker(dynSection,
+        local _, endFr = makeStationPicker(dynSection,
             function() return selEndIdx[t] end,
             function(v) selEndIdx[t] = v end)
-        for _, c in ipairs(dynSection:GetChildren()) do
-            if c:IsA("Frame") and c.Name == "Frame" and c.LayoutOrder == 99 then
-                c.LayoutOrder = dlo()
-                break
-            end
-        end
+        endFr.LayoutOrder = dlo()
 
         startBtn.Activated:Connect(function()
             if autoOpActive[t] then return end
