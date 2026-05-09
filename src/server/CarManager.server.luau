@@ -68,6 +68,22 @@ local function buildCar()
     seat.Parent          = carModel
     carModel.PrimaryPart = seat
 
+    -- 乗車プロンプト（ProximityPrompt で F キーから着席）
+    local seatPrompt = Instance.new("ProximityPrompt")
+    seatPrompt.ActionText            = "乗車"
+    seatPrompt.ObjectText            = "自動車"
+    seatPrompt.KeyboardKeyCode       = Enum.KeyCode.F
+    seatPrompt.MaxActivationDistance = 8
+    seatPrompt.RequiresLineOfSight   = false
+    seatPrompt.HoldDuration          = 0
+    seatPrompt.Parent                = seat
+
+    seatPrompt.Triggered:Connect(function(player)
+        local char = player.Character
+        local hum  = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum and not seat.Occupant then seat:Sit(hum) end
+    end)
+
     -- パーツ追加ヘルパー（すべて VehicleSeat に溶接）
     local function p(name, size, cf, col, mat, canCol)
         local pt = Instance.new("Part")

@@ -60,7 +60,7 @@ local curTrack   = 1
 
 for t = 1, 4 do
     selStart[t] = 1
-    selEnd[t]   = #STATION_NAMES
+    selEnd[t]   = 2   -- 初期値: 大阪→塚本（スポーン地点と次の駅）
 end
 
 -- パネル参照（グローバル、evtStateSync / evtStatus から更新する）
@@ -434,24 +434,8 @@ local function buildPanel()
             end
         end))
 
-        -- 自動運行セクション
+        -- 自動運行セクション（駅選択 → ON/OFF の順）
         secLabel(trackContainer, "■ 自動運行", tlo())
-
-        local aoRow = mkFrame(trackContainer, Color3.fromRGB(0, 0, 0),
-            {Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, LayoutOrder = tlo()})
-        hLayout(aoRow, 8)
-
-        local startBtn = mkBtn(aoRow, "▶  自動運行 開始",
-            aon and Color3.fromRGB(40,48,72) or Color3.fromRGB(0,125,55),
-            {Size = UDim2.new(0.57, -4, 1, 0), TextSize = 14,
-             TextColor3 = aon and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)})
-        local stopBtn = mkBtn(aoRow, "■  停止",
-            aon and Color3.fromRGB(155,24,24) or Color3.fromRGB(40,48,72),
-            {Size = UDim2.new(0.43, -4, 1, 0), TextSize = 14,
-             TextColor3 = aon and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)})
-
-        trackStartBtnRef = startBtn
-        trackStopBtnRef  = stopBtn
 
         secLabel(trackContainer, "始発駅", tlo())
         makeStationPicker(trackContainer,
@@ -464,6 +448,30 @@ local function buildPanel()
             function() return selEnd[t] end,
             function(v) selEnd[t] = v end,
             tlo())
+
+        -- 列車なし・運行中はスタートボタンを無効色にする
+        local function startBg()
+            if not pres or aon then return Color3.fromRGB(40,48,72) end
+            return Color3.fromRGB(0,125,55)
+        end
+        local function startTxt()
+            if not pres or aon then return Color3.fromRGB(90,100,125) end
+            return Color3.fromRGB(255,255,255)
+        end
+
+        local aoRow = mkFrame(trackContainer, Color3.fromRGB(0, 0, 0),
+            {Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, LayoutOrder = tlo()})
+        hLayout(aoRow, 8)
+
+        local startBtn = mkBtn(aoRow, "▶  自動運行 開始", startBg(),
+            {Size = UDim2.new(0.57, -4, 1, 0), TextSize = 14, TextColor3 = startTxt()})
+        local stopBtn = mkBtn(aoRow, "■  停止",
+            aon and Color3.fromRGB(155,24,24) or Color3.fromRGB(40,48,72),
+            {Size = UDim2.new(0.43, -4, 1, 0), TextSize = 14,
+             TextColor3 = aon and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)})
+
+        trackStartBtnRef = startBtn
+        trackStopBtnRef  = stopBtn
 
         table.insert(trackConns, startBtn.Activated:Connect(function()
             if autoOn[t] then
@@ -563,6 +571,12 @@ evtStateSync.OnClientEvent:Connect(function(trackNum, hasTrain)
     if trackStoreBtnRef then
         trackStoreBtnRef.BackgroundColor3 = pres and Color3.fromRGB(155,32,32) or Color3.fromRGB(40,48,72)
         trackStoreBtnRef.TextColor3       = pres and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)
+    end
+    -- 列車なし→スタートボタンを無効色に更新
+    if trackStartBtnRef then
+        local canStart = pres and not autoOn[trackNum]
+        trackStartBtnRef.BackgroundColor3 = canStart and Color3.fromRGB(0,125,55)  or Color3.fromRGB(40,48,72)
+        trackStartBtnRef.TextColor3       = canStart and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)
     end
 end)
 
