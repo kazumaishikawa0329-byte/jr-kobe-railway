@@ -514,7 +514,10 @@ buildTrain = function(trackNum)
 
     local parts = {}
     for _, desc in ipairs(train:GetDescendants()) do
-        if desc:IsA("BasePart") then table.insert(parts, desc) end
+        if desc:IsA("BasePart") then
+            desc.CollisionGroup = "Train"
+            table.insert(parts, desc)
+        end
     end
     trainPartsList[trackNum] = parts
 

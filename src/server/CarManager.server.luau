@@ -43,14 +43,15 @@ local COL_HEAD  = Color3.fromRGB(255, 245, 200)
 local COL_TAIL  = Color3.fromRGB(200,  10,  10)
 
 -- 状態
-local carModel   = nil
-local carParts   = nil   -- {{part=BasePart, offset=CFrame}, ...}
-local carRootCF  = nil   -- 車のルート CFrame（Seat の位置・向き）
-local carSpeed   = 0
-local carThrottle = 0    -- -1/0/1
-local carSteer    = 0    -- -1/0/1
-local driverSeat  = nil  -- Seat インスタンス
-local seatPrompt  = nil  -- ProximityPrompt
+local carModel          = nil
+local carParts          = nil   -- {{part=BasePart, offset=CFrame}, ...}
+local carRootCF         = nil   -- 車のルート CFrame（Seat の位置・向き）
+local carSpeed          = 0
+local carThrottle       = 0    -- -1/0/1
+local carSteer          = 0    -- -1/0/1
+local driverSeat        = nil  -- Seat インスタンス
+local seatPrompt        = nil  -- ProximityPrompt
+local prevOccupantChar  = nil  -- 直前の乗員キャラ（降車時グループ復元用）
 
 -- ============================================================
 -- 車生成
@@ -103,7 +104,25 @@ local function buildCar()
     end)
 
     seat:GetPropertyChangedSignal("Occupant"):Connect(function()
-        if not seat.Occupant then
+        if seat.Occupant then
+            local char = seat.Occupant.Parent
+            if char then
+                prevOccupantChar = char
+                for _, desc in ipairs(char:GetDescendants()) do
+                    if desc:IsA("BasePart") then
+                        desc.CollisionGroup = "Car"
+                    end
+                end
+            end
+        else
+            if prevOccupantChar then
+                for _, desc in ipairs(prevOccupantChar:GetDescendants()) do
+                    if desc:IsA("BasePart") then
+                        pcall(function() desc.CollisionGroup = "Default" end)
+                    end
+                end
+                prevOccupantChar = nil
+            end
             if seatPrompt then seatPrompt.Enabled = true end
             carThrottle = 0
             carSteer    = 0
@@ -217,6 +236,7 @@ local function buildCar()
     carParts  = {}
     for _, desc in ipairs(carModel:GetDescendants()) do
         if desc:IsA("BasePart") then
+            desc.CollisionGroup = "Car"
             table.insert(carParts, {part = desc, offset = carRootCF:Inverse() * desc.CFrame})
         end
     end
@@ -235,9 +255,18 @@ local function storeCar()
     if not carModel then return end
 
     if driverSeat and driverSeat.Occupant then
+        local char = driverSeat.Occupant.Parent
+        if char then
+            for _, desc in ipairs(char:GetDescendants()) do
+                if desc:IsA("BasePart") then
+                    pcall(function() desc.CollisionGroup = "Default" end)
+                end
+            end
+        end
         driverSeat.Occupant.Sit = false
         task.wait(0.05)
     end
+    prevOccupantChar = nil
 
     carModel:Destroy()
     carModel    = nil

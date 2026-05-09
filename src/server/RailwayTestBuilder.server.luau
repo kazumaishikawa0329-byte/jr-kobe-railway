@@ -85,7 +85,7 @@ local function buildTrackZone(label, zFrom, zTo, xOffsets, groundW, ballastW)
         mkP(folder, "Ballast" .. sfx,
             Vector3.new(ballastW, 0.35, segLen),
             Vector3.new(0, 0.175, zc),
-            Color3.fromRGB(130, 120, 110), nil, true)
+            Color3.fromRGB(130, 120, 110))
 
         for ti, xOff in ipairs(xOffsets) do
             local tsfx = sfx .. "t" .. ti
