@@ -1,13 +1,12 @@
--- 自動運行モード管理サーバー（プレイヤー1人1台制）
+-- 自動運行モード管理サーバー（4線独立制）
 
 local Workspace         = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local Players           = game:GetService("Players")
 
 local OFFSET    = Vector3.new(40, 0, 0)
 local RW_FOLDER = "RailwayTest"
 
-local updateBillboard = function() end  -- パネル生成後に再定義
+local updateBillboard = function() end
 
 local STATIONS = {
     {name = "大阪",          z =  4530},
@@ -42,17 +41,14 @@ local STATIONS = {
     {name = "網干",          z = -84970},
 }
 
--- 状態管理
 local autoOpActive = {}
 local trainPresent = {}
 local autoOpConfig = {}
-local trackOwner   = {}   -- [trackNum] = Player | nil
 
 for t = 1, 4 do
     autoOpActive[t] = false
     trainPresent[t] = false
-    autoOpConfig[t] = {startIdx = 1, endIdx = #STATIONS}
-    trackOwner[t]   = nil
+    autoOpConfig[t] = {startIdx = 1, endIdx = 2}
 end
 
 -- RemoteEvents
@@ -72,9 +68,8 @@ local evtStatus     = mkEv("AutoOpStatus")
 local evtSpawnTrain = mkEv("AutoOpSpawnTrain")
 local evtSetTime    = mkEv("AutoOpSetTime")
 local evtStateSync  = mkEv("AutoOpStateSync")
-local evtTrackOwned = mkEv("AutoOpTrackOwned")
 
--- 駅名リスト（クライアントが参照）
+-- 駅名リスト
 local stListFolder = Instance.new("Folder")
 stListFolder.Name   = "StationList"
 stListFolder.Parent = remFolder
@@ -85,20 +80,11 @@ for i, st in ipairs(STATIONS) do
     sv.Parent = stListFolder
 end
 
--- TrainBuilder インターフェース参照（初期化後に設定）
 local trainCtrl  = nil
 local trainQuery = nil
 
--- プレイヤーが所有するトラック番号を返す
-local function getPlayerTrack(player)
-    for t = 1, 4 do
-        if trackOwner[t] == player then return t end
-    end
-    return nil
-end
-
 -- ============================================================
--- 列車位置取得（4両の InteriorFloor の平均Z）
+-- 列車位置取得
 -- ============================================================
 local function getTrainCenterZ(trackNum)
     local rwf = Workspace:FindFirstChild(RW_FOLDER)
@@ -267,10 +253,9 @@ local function stopAutoOp(trackNum)
     print(string.format("[AutoOp] %d番線 自動運行停止要求", trackNum))
 end
 
--- プレイヤー所有トラックで自動運行開始（クライアントはトラック番号を送らない）
-evtStart.OnServerEvent:Connect(function(player, startIdx, endIdx)
-    local trackNum = getPlayerTrack(player)
-    if not trackNum then return end
+evtStart.OnServerEvent:Connect(function(player, trackNum, startIdx, endIdx)
+    if type(trackNum) ~= "number" then return end
+    trackNum = math.clamp(math.floor(trackNum), 1, 4)
     if type(startIdx) ~= "number" or type(endIdx) ~= "number" then return end
     startIdx = math.clamp(math.floor(startIdx), 1, #STATIONS)
     endIdx   = math.clamp(math.floor(endIdx),   1, #STATIONS)
@@ -280,16 +265,15 @@ evtStart.OnServerEvent:Connect(function(player, startIdx, endIdx)
     task.defer(function() updateBillboard() end)
 end)
 
-evtStop.OnServerEvent:Connect(function(player)
-    local trackNum = getPlayerTrack(player)
-    if trackNum then
-        stopAutoOp(trackNum)
-        task.defer(function() updateBillboard() end)
-    end
+evtStop.OnServerEvent:Connect(function(player, trackNum)
+    if type(trackNum) ~= "number" then return end
+    trackNum = math.clamp(math.floor(trackNum), 1, 4)
+    stopAutoOp(trackNum)
+    task.defer(function() updateBillboard() end)
 end)
 
 -- ============================================================
--- パネル生成（RailwayTest / TrainBuilder 起動待ち）
+-- パネル生成
 -- ============================================================
 repeat task.wait() until Workspace:FindFirstChild(RW_FOLDER)
     and Workspace:FindFirstChild(RW_FOLDER):FindFirstChild("Platform")
@@ -318,11 +302,8 @@ local function mkP(parent, name, size, lp, color, mat)
     return p
 end
 
--- ============================================================
--- 単一ターミナル型操作パネル
--- ============================================================
 local TERM_X = 32
-local TERM_Z = 4548   -- 4線スポーン (4530〜4566) の中心
+local TERM_Z = 4548
 local GND_Y  = 0.5
 local TERM_W = 4.4
 local TERM_H = 2.5
@@ -332,26 +313,22 @@ local termModel = Instance.new("Model")
 termModel.Name   = "ControlTerminal"
 termModel.Parent = rwFolder
 
--- 本体
 local termBody = mkP(termModel, "Body",
     Vector3.new(TERM_W, TERM_H, TERM_D),
     Vector3.new(TERM_X, GND_Y + TERM_H / 2, TERM_Z),
     Color3.fromRGB(14, 20, 48))
 
--- スクリーン面（+X 側）
 local termScreen = mkP(termModel, "Screen",
     Vector3.new(0.28, TERM_H * 0.78, TERM_D - 0.8),
     Vector3.new(TERM_X + TERM_W / 2 + 0.14, GND_Y + TERM_H * 0.56, TERM_Z),
     Color3.fromRGB(4, 10, 28))
 termScreen.CanCollide = false
 
--- 上部ネオンバー
 mkP(termModel, "NeonTop",
     Vector3.new(TERM_W + 0.1, 0.22, TERM_D + 0.1),
     Vector3.new(TERM_X, GND_Y + TERM_H + 0.11, TERM_Z),
     Color3.fromRGB(0, 100, 220), Enum.Material.Neon)
 
--- 左右ネオンポール
 for _, dz in ipairs({-(TERM_D / 2 + 0.1), (TERM_D / 2 + 0.1)}) do
     mkP(termModel, "Pole" .. (dz < 0 and "L" or "R"),
         Vector3.new(0.2, TERM_H + 0.8, 0.2),
@@ -359,7 +336,6 @@ for _, dz in ipairs({-(TERM_D / 2 + 0.1), (TERM_D / 2 + 0.1)}) do
         Color3.fromRGB(0, 100, 220), Enum.Material.Neon)
 end
 
--- BillboardGui（スクリーン上に表示）
 local bbg = Instance.new("BillboardGui")
 bbg.Size        = UDim2.fromOffset(340, 100)
 bbg.StudsOffset = Vector3.new(2.8, 0, 0)
@@ -379,13 +355,12 @@ local subLbl = Instance.new("TextLabel")
 subLbl.Size                   = UDim2.new(1, 0, 0.48, 0)
 subLbl.Position               = UDim2.new(0, 0, 0.52, 0)
 subLbl.BackgroundTransparency = 1
-subLbl.Text                   = "空き線路: 4 / 4  ［ E ］ で操作"
+subLbl.Text                   = "列車 0 / 4 稼働中  ［ E ］ で操作"
 subLbl.TextColor3             = Color3.fromRGB(160, 210, 255)
 subLbl.TextSize               = 16
 subLbl.Font                   = Enum.Font.Gotham
 subLbl.Parent                 = bbg
 
--- ProximityPrompt
 local pp = Instance.new("ProximityPrompt")
 pp.ActionText            = "パネルを開く"
 pp.ObjectText            = "列車管理"
@@ -396,25 +371,19 @@ pp.HoldDuration          = 0
 pp.Parent                = termBody
 
 pp.Triggered:Connect(function(player)
-    local playerTrack = getPlayerTrack(player)
-    local statuses    = {}
-    for tr = 1, 4 do statuses[tr] = autoOpActive[tr] end
-    evtOpenPanel:FireClient(player, statuses, playerTrack, trainPresent, autoOpConfig)
+    evtOpenPanel:FireClient(player, autoOpActive, trainPresent, autoOpConfig)
 end)
 
--- 空き線路数を表示
 updateBillboard = function()
-    local free = 0
-    for t = 1, 4 do
-        if not trainPresent[t] and trackOwner[t] == nil then free += 1 end
-    end
-    subLbl.Text = string.format("空き線路: %d / 4  ［ E ］ で操作", free)
+    local cnt = 0
+    for t = 1, 4 do if trainPresent[t] then cnt += 1 end end
+    subLbl.Text = string.format("列車 %d / 4 稼働中  ［ E ］ で操作", cnt)
 end
 
 print("[AutoOpManager] 操作パネルを設置しました。")
 
 -- ============================================================
--- TrainStateChanged 購読（列車スポーン/格納状態を追跡）
+-- TrainStateChanged 購読
 -- ============================================================
 local trainStateChanged = ReplicatedStorage:WaitForChild("TrainStateChanged", 15)
 if trainStateChanged then
@@ -427,38 +396,24 @@ if trainStateChanged then
 end
 
 -- ============================================================
--- スポーン/格納リクエスト処理（1プレイヤー1トラック制）
+-- スポーン/格納リクエスト
 -- ============================================================
-evtSpawnTrain.OnServerEvent:Connect(function(player, action)
+evtSpawnTrain.OnServerEvent:Connect(function(player, trackNum, action)
+    if type(trackNum) ~= "number" then return end
+    trackNum = math.clamp(math.floor(trackNum), 1, 4)
     if action == "spawn" then
-        if getPlayerTrack(player) then return end  -- すでに列車を所有
-        local freeTrack = nil
-        for t = 1, 4 do
-            if not trainPresent[t] and trackOwner[t] == nil then
-                freeTrack = t; break
-            end
-        end
-        if not freeTrack then
-            evtTrackOwned:FireClient(player, nil, "full")
-            return
-        end
-        trackOwner[freeTrack] = player
-        trainCtrl:Fire(freeTrack, "Build", nil)
-        evtTrackOwned:FireClient(player, freeTrack, "ok")
-        task.defer(function() updateBillboard() end)
+        if trainPresent[trackNum] then return end
+        trainCtrl:Fire(trackNum, "Build", nil)
     elseif action == "store" then
-        local t = getPlayerTrack(player)
-        if not t then return end
-        if autoOpActive[t] then stopAutoOp(t) end
-        trainCtrl:Fire(t, "Store", nil)
-        trackOwner[t] = nil
-        evtTrackOwned:FireClient(player, nil, "ok")
-        task.defer(function() updateBillboard() end)
+        if not trainPresent[trackNum] then return end
+        if autoOpActive[trackNum] then stopAutoOp(trackNum) end
+        trainCtrl:Fire(trackNum, "Store", nil)
     end
+    task.defer(function() updateBillboard() end)
 end)
 
 -- ============================================================
--- 時刻設定リクエスト処理
+-- 時刻設定
 -- ============================================================
 local timeCtrl = ReplicatedStorage:WaitForChild("TimeControl", 15)
 
@@ -466,17 +421,4 @@ evtSetTime.OnServerEvent:Connect(function(_, periodId)
     if timeCtrl and type(periodId) == "string" then
         timeCtrl:Fire(periodId)
     end
-end)
-
--- ============================================================
--- プレイヤー退出時クリーンアップ
--- ============================================================
-Players.PlayerRemoving:Connect(function(player)
-    local t = getPlayerTrack(player)
-    if not t then return end
-    if autoOpActive[t] then stopAutoOp(t) end
-    trainCtrl:Fire(t, "Store", nil)
-    trackOwner[t] = nil
-    task.defer(function() updateBillboard() end)
-    print(string.format("[AutoOp] %s 退出 → %d番線クリーンアップ", player.Name, t))
 end)
