@@ -1,4 +1,4 @@
--- 統合列車管理パネル（クライアント・1プレイヤー1台制）
+-- 統合列車管理パネル（クライアント・4線独立制）
 
 local Players           = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -17,10 +17,14 @@ local evtSpawnTrain = remFolder:WaitForChild("AutoOpSpawnTrain")
 local evtSetTime    = remFolder:WaitForChild("AutoOpSetTime")
 local evtStatus     = remFolder:WaitForChild("AutoOpStatus")
 local evtStateSync  = remFolder:WaitForChild("AutoOpStateSync")
-local evtTrackOwned = remFolder:WaitForChild("AutoOpTrackOwned")
 local stListFld     = remFolder:WaitForChild("StationList")
 
--- 駅リスト構築
+local carRem      = ReplicatedStorage:WaitForChild("CarRemotes", 20)
+local evtCarSpawn = carRem and carRem:FindFirstChild("CarSpawn")
+local evtCarStore = carRem and carRem:FindFirstChild("CarStore")
+local evtCarState = carRem and carRem:FindFirstChild("CarState")
+
+-- 駅リスト
 local STATION_NAMES = {}
 do
     local i = 1
@@ -46,15 +50,28 @@ local TIME_BTNS = {
     {id="auto",    label="実時間", color=Color3.fromRGB( 35,105, 50)},
 }
 
--- プレイヤー状態
-local myTrack     = nil    -- 所有トラック番号（nil or 1〜4）
-local myAutoOn    = false
-local myTrainPres = false
-local selStart    = 1
-local selEnd      = #STATION_NAMES
+-- 状態
+local trainPres  = {false, false, false, false}
+local autoOn     = {false, false, false, false}
+local selStart   = {}
+local selEnd     = {}
+local carPresent = false
+local curTrack   = 1
 
-local panelGui    = nil
-local statusLabel = nil
+for t = 1, 4 do
+    selStart[t] = 1
+    selEnd[t]   = #STATION_NAMES
+end
+
+-- パネル参照（グローバル、evtStateSync / evtStatus から更新する）
+local panelGui         = nil
+local statusLabel      = nil
+local trackSpawnBtnRef = nil
+local trackStoreBtnRef = nil
+local trackStartBtnRef = nil
+local trackStopBtnRef  = nil
+local carSpawnBtnRef   = nil
+local carStoreBtnRef   = nil
 
 -- ============================================================
 -- UI ヘルパー
@@ -120,8 +137,8 @@ local function hLayout(parent, gap)
     l.Parent        = parent
 end
 
-local function secLabel(scroll, text, order)
-    return mkLabel(scroll, text, {
+local function secLabel(parent, text, order)
+    return mkLabel(parent, text, {
         Size           = UDim2.new(1, 0, 0, 20),
         LayoutOrder    = order,
         TextColor3     = Color3.fromRGB(120, 158, 220),
@@ -131,21 +148,13 @@ local function secLabel(scroll, text, order)
     })
 end
 
-local function divLine(scroll, order)
-    return mkFrame(scroll, Color3.fromRGB(35, 50, 90),
+local function divLine(parent, order)
+    return mkFrame(parent, Color3.fromRGB(35, 50, 90),
         {Size = UDim2.new(1, 0, 0, 1), LayoutOrder = order})
 end
 
 -- ============================================================
--- 閉じる
--- ============================================================
-local function closePanel()
-    if panelGui then panelGui:Destroy(); panelGui = nil end
-    statusLabel = nil
-end
-
--- ============================================================
--- 駅ピッカー（◀ 駅名 ▶、長押し高速送り）
+-- 駅ピッカー
 -- ============================================================
 local function makeStationPicker(parent, getter, setter, order)
     local fr = mkFrame(parent, Color3.fromRGB(18, 26, 54),
@@ -157,8 +166,11 @@ local function makeStationPicker(parent, getter, setter, order)
     local incBtn = mkBtn(fr, "▶", Color3.fromRGB(32, 44, 80),
         {Size = UDim2.fromOffset(36, 36), Position = UDim2.new(1, -36, 0, 0), TextSize = 17})
     local namLbl = mkLabel(fr, "",
-        {Size     = UDim2.new(1, -80, 1, 0), Position  = UDim2.new(0, 40, 0, 0),
-         TextColor3 = Color3.fromRGB(232, 242, 255), TextSize = 15, Font = Enum.Font.GothamBold})
+        {Size       = UDim2.new(1, -80, 1, 0),
+         Position   = UDim2.new(0, 40, 0, 0),
+         TextColor3 = Color3.fromRGB(232, 242, 255),
+         TextSize   = 15,
+         Font       = Enum.Font.GothamBold})
 
     local function refresh()
         local i = getter()
@@ -181,11 +193,23 @@ local function makeStationPicker(parent, getter, setter, order)
                 end
             end)
         end)
-        btn.MouseButton1Up:Connect(function() down = false end)
-        btn.MouseLeave:Connect(function()     down = false end)
+        btn.MouseButton1Up:Connect(function()  down = false end)
+        btn.MouseLeave:Connect(function()      down = false end)
     end
+end
 
-    return refresh
+-- ============================================================
+-- 閉じる
+-- ============================================================
+local function closePanel()
+    if panelGui then panelGui:Destroy(); panelGui = nil end
+    statusLabel      = nil
+    trackSpawnBtnRef = nil
+    trackStoreBtnRef = nil
+    trackStartBtnRef = nil
+    trackStopBtnRef  = nil
+    carSpawnBtnRef   = nil
+    carStoreBtnRef   = nil
 end
 
 -- ============================================================
@@ -201,7 +225,7 @@ local function buildPanel()
     screen.Parent         = gui
     panelGui = screen
 
-    -- 半透明オーバーレイ
+    -- オーバーレイ
     local ov = mkFrame(screen, Color3.fromRGB(0, 0, 0),
         {Size = UDim2.fromScale(1, 1), BackgroundTransparency = 0.55})
     ov.InputBegan:Connect(function(inp)
@@ -210,8 +234,8 @@ local function buildPanel()
 
     -- メインウィンドウ
     local win = mkFrame(screen, Color3.fromRGB(12, 18, 40),
-        {Size      = UDim2.fromOffset(480, 520),
-         Position  = UDim2.fromScale(0.5, 0.5),
+        {Size        = UDim2.fromOffset(480, 600),
+         Position    = UDim2.fromScale(0.5, 0.5),
          AnchorPoint = Vector2.new(0.5, 0.5)})
     corner(win, 10)
 
@@ -230,17 +254,32 @@ local function buildPanel()
         {Size = UDim2.fromOffset(34, 34), Position = UDim2.new(1, -38, 0, 5), TextSize = 15, r = 6})
     xBtn.Activated:Connect(closePanel)
 
-    -- スクロールフレーム
+    -- タブ行（線路選択・絶対配置で等幅4ボタン）
+    local tabRow = mkFrame(win, Color3.fromRGB(8, 12, 28),
+        {Size = UDim2.new(1, 0, 0, 44), Position = UDim2.new(0, 0, 0, 44)})
+
+    local tabBtns = {}
+    for t = 1, 4 do
+        local xPct = (t - 1) * 0.25
+        local tb = mkBtn(tabRow, t .. "番線",
+            (t == curTrack) and TRACK_COLORS[t] or Color3.fromRGB(22, 30, 55),
+            {Size     = UDim2.new(0.25, -2, 1, -10),
+             Position = UDim2.new(xPct, 1, 0, 5),
+             TextSize = 14, r = 6})
+        tabBtns[t] = tb
+    end
+
+    -- スクロールフレーム（タブの下から）
     local scroll = Instance.new("ScrollingFrame")
-    scroll.Size                 = UDim2.new(1, -10, 1, -52)
-    scroll.Position             = UDim2.new(0, 5, 0, 48)
+    scroll.Size                   = UDim2.new(1, -10, 1, -94)
+    scroll.Position               = UDim2.new(0, 5, 0, 94)
     scroll.BackgroundTransparency = 1
-    scroll.BorderSizePixel      = 0
-    scroll.ScrollBarThickness   = 5
-    scroll.ScrollBarImageColor3 = Color3.fromRGB(70, 95, 160)
-    scroll.CanvasSize           = UDim2.new(0, 0, 0, 0)
-    scroll.AutomaticCanvasSize  = Enum.AutomaticSize.Y
-    scroll.Parent               = win
+    scroll.BorderSizePixel        = 0
+    scroll.ScrollBarThickness     = 5
+    scroll.ScrollBarImageColor3   = Color3.fromRGB(70, 95, 160)
+    scroll.CanvasSize             = UDim2.new(0, 0, 0, 0)
+    scroll.AutomaticCanvasSize    = Enum.AutomaticSize.Y
+    scroll.Parent                 = win
     vLayout(scroll, 7)
 
     local pad = Instance.new("UIPadding")
@@ -250,146 +289,59 @@ local function buildPanel()
     pad.PaddingBottom = UDim.new(0, 8)
     pad.Parent        = scroll
 
-    local order = 0
-    local function lo() order += 1; return order end
+    local scrollLo = 0
+    local function lo() scrollLo += 1; return scrollLo end
 
-    -- ── 自分の列車 ───────────────────────────────────────────────
-    secLabel(scroll, "■ 自分の列車", lo())
-
-    local trainInfoRow = mkFrame(scroll, Color3.fromRGB(0, 0, 0),
-        {Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = lo()})
-    hLayout(trainInfoRow, 8)
-
-    local spawnBtn = mkBtn(trainInfoRow, "列車をスポーン",
-        myTrainPres and Color3.fromRGB(40, 48, 72) or Color3.fromRGB(0, 120, 60),
-        {Size      = UDim2.new(0.5, -4, 1, 0),
-         TextColor3 = myTrainPres and Color3.fromRGB(90, 100, 125) or Color3.fromRGB(255, 255, 255)})
-
-    local storeBtn = mkBtn(trainInfoRow, "列車を格納",
-        myTrainPres and Color3.fromRGB(155, 32, 32) or Color3.fromRGB(40, 48, 72),
-        {Size      = UDim2.new(0.5, -4, 1, 0),
-         TextColor3 = myTrainPres and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(90, 100, 125)})
-
-    -- 列車状態テキスト
-    local function trainStateText()
-        if not myTrainPres then return "状態: ○ 列車なし（空き線路を自動割り当て）" end
-        local trackColor = myTrack and TRACK_COLORS[myTrack] or Color3.fromRGB(200, 200, 200)
-        local trackStr   = myTrack and (myTrack .. "番線") or "?"
-        if myAutoOn then return "状態: ● " .. trackStr .. " で自動運行中"
-        else             return "状態: ● " .. trackStr .. " でスポーン中（待機）" end
-    end
-
-    local trainStateLbl = mkLabel(scroll, trainStateText(), {
-        Size           = UDim2.new(1, 0, 0, 18),
-        LayoutOrder    = lo(),
-        TextColor3     = myTrainPres and Color3.fromRGB(100, 225, 135) or Color3.fromRGB(155, 165, 195),
-        TextSize       = 13,
-        Font           = Enum.Font.Gotham,
-        TextXAlignment = Enum.TextXAlignment.Left,
+    -- トラックセクションコンテナ（switchTab が中身を入れ替える）
+    local trackContainer = mkFrame(scroll, Color3.fromRGB(0, 0, 0), {
+        BackgroundTransparency = 1,
+        Size          = UDim2.new(1, 0, 0, 0),
+        AutomaticSize = Enum.AutomaticSize.Y,
+        LayoutOrder   = lo()
     })
 
-    local function refreshTrainState()
-        trainStateLbl.Text = trainStateText()
-        trainStateLbl.TextColor3 = myTrainPres
-            and Color3.fromRGB(100, 225, 135) or Color3.fromRGB(155, 165, 195)
-        spawnBtn.BackgroundColor3 = myTrainPres and Color3.fromRGB(40,48,72) or Color3.fromRGB(0,120,60)
-        spawnBtn.TextColor3 = myTrainPres and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)
-        storeBtn.BackgroundColor3 = myTrainPres and Color3.fromRGB(155,32,32) or Color3.fromRGB(40,48,72)
-        storeBtn.TextColor3 = myTrainPres and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)
-    end
+    divLine(scroll, lo())
 
-    spawnBtn.Activated:Connect(function()
-        if myTrainPres then return end
-        evtSpawnTrain:FireServer("spawn")
+    -- ── 自動車セクション ──────────────────────────────────────
+    secLabel(scroll, "■ 自動車", lo())
+
+    local carRow = mkFrame(scroll, Color3.fromRGB(0, 0, 0),
+        {Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = lo()})
+    hLayout(carRow, 8)
+
+    local function carActiveBg()   return carPresent and Color3.fromRGB(40,48,72)  or Color3.fromRGB(0,100,50) end
+    local function carActiveTxt()  return carPresent and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255) end
+    local function carStoreBg()    return carPresent and Color3.fromRGB(155,32,32) or Color3.fromRGB(40,48,72) end
+    local function carStoreTxt()   return carPresent and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125) end
+
+    local spawnCarBtn = mkBtn(carRow, "車をスポーン", carActiveBg(),
+        {Size = UDim2.new(0.5, -4, 1, 0), TextColor3 = carActiveTxt()})
+    local storeCarBtn = mkBtn(carRow, "車を格納",     carStoreBg(),
+        {Size = UDim2.new(0.5, -4, 1, 0), TextColor3 = carStoreTxt()})
+
+    carSpawnBtnRef = spawnCarBtn
+    carStoreBtnRef = storeCarBtn
+
+    spawnCarBtn.Activated:Connect(function()
+        if carPresent then return end
+        if evtCarSpawn then evtCarSpawn:FireServer() end
         if statusLabel then
-            statusLabel.Text      = "列車のスポーンを要求しました..."
+            statusLabel.Text      = "車のスポーンを要求しました..."
             statusLabel.TextColor3 = Color3.fromRGB(100, 210, 130)
         end
     end)
-
-    storeBtn.Activated:Connect(function()
-        if not myTrainPres then return end
-        evtSpawnTrain:FireServer("store")
+    storeCarBtn.Activated:Connect(function()
+        if not carPresent then return end
+        if evtCarStore then evtCarStore:FireServer() end
         if statusLabel then
-            statusLabel.Text      = "列車の格納を要求しました"
+            statusLabel.Text      = "車を格納しました"
             statusLabel.TextColor3 = Color3.fromRGB(255, 195, 60)
         end
     end)
 
     divLine(scroll, lo())
 
-    -- ── 自動運行設定 ─────────────────────────────────────────────
-    secLabel(scroll, "■ 自動運行設定", lo())
-
-    local aoRow = mkFrame(scroll, Color3.fromRGB(0, 0, 0),
-        {Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, LayoutOrder = lo()})
-    hLayout(aoRow, 8)
-
-    local function startColor()  return myAutoOn and Color3.fromRGB(40,48,72) or Color3.fromRGB(0,125,55) end
-    local function startTxtCol() return myAutoOn and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255) end
-    local function stopColor()   return myAutoOn and Color3.fromRGB(155,24,24) or Color3.fromRGB(40,48,72) end
-    local function stopTxtCol()  return myAutoOn and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125) end
-
-    local startBtn = mkBtn(aoRow, "▶  自動運行 開始", startColor(),
-        {Size = UDim2.new(0.57, -4, 1, 0), TextSize = 14, TextColor3 = startTxtCol()})
-    local stopBtn  = mkBtn(aoRow, "■  停止",          stopColor(),
-        {Size = UDim2.new(0.43, -4, 1, 0), TextSize = 14, TextColor3 = stopTxtCol()})
-
-    local function refreshAutoBtn()
-        startBtn.BackgroundColor3 = startColor()
-        startBtn.TextColor3       = startTxtCol()
-        stopBtn.BackgroundColor3  = stopColor()
-        stopBtn.TextColor3        = stopTxtCol()
-    end
-
-    -- 始発駅
-    secLabel(scroll, "始発駅", lo())
-    makeStationPicker(scroll,
-        function() return selStart end,
-        function(v) selStart = v end,
-        lo())
-
-    -- 終着駅
-    secLabel(scroll, "終着駅", lo())
-    makeStationPicker(scroll,
-        function() return selEnd end,
-        function(v) selEnd = v end,
-        lo())
-
-    startBtn.Activated:Connect(function()
-        if myAutoOn or not myTrainPres then
-            if statusLabel then
-                statusLabel.Text      = myTrainPres and "すでに自動運行中です" or "先に列車をスポーンしてください"
-                statusLabel.TextColor3 = Color3.fromRGB(255, 90, 70)
-            end
-            return
-        end
-        if selStart == selEnd then
-            if statusLabel then
-                statusLabel.Text      = "始発駅と終着駅に同じ駅は選べません"
-                statusLabel.TextColor3 = Color3.fromRGB(255, 90, 70)
-            end
-            return
-        end
-        evtStart:FireServer(selStart, selEnd)
-        if statusLabel then
-            statusLabel.Text = "自動運行を開始します（"
-                .. STATION_NAMES[selStart] .. "〜" .. STATION_NAMES[selEnd] .. "）"
-            statusLabel.TextColor3 = Color3.fromRGB(100, 210, 130)
-        end
-    end)
-
-    stopBtn.Activated:Connect(function()
-        evtStop:FireServer()
-        if statusLabel then
-            statusLabel.Text      = "自動運行を停止します"
-            statusLabel.TextColor3 = Color3.fromRGB(255, 195, 60)
-        end
-    end)
-
-    divLine(scroll, lo())
-
-    -- ── 時刻設定 ─────────────────────────────────────────────────
+    -- ── 時刻設定 ──────────────────────────────────────────────
     secLabel(scroll, "■ 時刻設定", lo())
 
     local timeRow = mkFrame(scroll, Color3.fromRGB(0, 0, 0),
@@ -420,6 +372,146 @@ local function buildPanel()
     })
     statusLabel = sLbl
 
+    -- ── トラックセクション切替 ────────────────────────────────
+    local trackConns = {}
+
+    local function switchTab(t)
+        for _, c in ipairs(trackConns) do c:Disconnect() end
+        trackConns = {}
+        trackSpawnBtnRef = nil
+        trackStoreBtnRef = nil
+        trackStartBtnRef = nil
+        trackStopBtnRef  = nil
+
+        curTrack = t
+
+        for i, btn in ipairs(tabBtns) do
+            btn.BackgroundColor3 = (i == t) and TRACK_COLORS[i] or Color3.fromRGB(22, 30, 55)
+        end
+
+        for _, c in ipairs(trackContainer:GetChildren()) do c:Destroy() end
+        vLayout(trackContainer, 6)
+
+        local tOrd = 0
+        local function tlo() tOrd += 1; return tOrd end
+
+        local pres = trainPres[t]
+        local aon  = autoOn[t]
+
+        -- 列車セクション
+        secLabel(trackContainer, "■ 列車（" .. t .. "番線）", tlo())
+
+        local trainRow = mkFrame(trackContainer, Color3.fromRGB(0, 0, 0),
+            {Size = UDim2.new(1, 0, 0, 44), BackgroundTransparency = 1, LayoutOrder = tlo()})
+        hLayout(trainRow, 8)
+
+        local spawnBtn = mkBtn(trainRow, "列車をスポーン",
+            pres and Color3.fromRGB(40,48,72) or Color3.fromRGB(0,120,60),
+            {Size      = UDim2.new(0.5, -4, 1, 0),
+             TextColor3 = pres and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)})
+        local storeBtn = mkBtn(trainRow, "列車を格納",
+            pres and Color3.fromRGB(155,32,32) or Color3.fromRGB(40,48,72),
+            {Size      = UDim2.new(0.5, -4, 1, 0),
+             TextColor3 = pres and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)})
+
+        trackSpawnBtnRef = spawnBtn
+        trackStoreBtnRef = storeBtn
+
+        table.insert(trackConns, spawnBtn.Activated:Connect(function()
+            if trainPres[t] then return end
+            evtSpawnTrain:FireServer(t, "spawn")
+            if statusLabel then
+                statusLabel.Text      = t .. "番線の列車をスポーンします..."
+                statusLabel.TextColor3 = Color3.fromRGB(100, 210, 130)
+            end
+        end))
+        table.insert(trackConns, storeBtn.Activated:Connect(function()
+            if not trainPres[t] then return end
+            evtSpawnTrain:FireServer(t, "store")
+            if statusLabel then
+                statusLabel.Text      = t .. "番線の列車を格納します"
+                statusLabel.TextColor3 = Color3.fromRGB(255, 195, 60)
+            end
+        end))
+
+        -- 自動運行セクション
+        secLabel(trackContainer, "■ 自動運行", tlo())
+
+        local aoRow = mkFrame(trackContainer, Color3.fromRGB(0, 0, 0),
+            {Size = UDim2.new(1, 0, 0, 42), BackgroundTransparency = 1, LayoutOrder = tlo()})
+        hLayout(aoRow, 8)
+
+        local startBtn = mkBtn(aoRow, "▶  自動運行 開始",
+            aon and Color3.fromRGB(40,48,72) or Color3.fromRGB(0,125,55),
+            {Size = UDim2.new(0.57, -4, 1, 0), TextSize = 14,
+             TextColor3 = aon and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)})
+        local stopBtn = mkBtn(aoRow, "■  停止",
+            aon and Color3.fromRGB(155,24,24) or Color3.fromRGB(40,48,72),
+            {Size = UDim2.new(0.43, -4, 1, 0), TextSize = 14,
+             TextColor3 = aon and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)})
+
+        trackStartBtnRef = startBtn
+        trackStopBtnRef  = stopBtn
+
+        secLabel(trackContainer, "始発駅", tlo())
+        makeStationPicker(trackContainer,
+            function() return selStart[t] end,
+            function(v) selStart[t] = v end,
+            tlo())
+
+        secLabel(trackContainer, "終着駅", tlo())
+        makeStationPicker(trackContainer,
+            function() return selEnd[t] end,
+            function(v) selEnd[t] = v end,
+            tlo())
+
+        table.insert(trackConns, startBtn.Activated:Connect(function()
+            if autoOn[t] then
+                if statusLabel then
+                    statusLabel.Text      = t .. "番線はすでに自動運行中です"
+                    statusLabel.TextColor3 = Color3.fromRGB(255, 90, 70)
+                end
+                return
+            end
+            if not trainPres[t] then
+                if statusLabel then
+                    statusLabel.Text      = "先に" .. t .. "番線の列車をスポーンしてください"
+                    statusLabel.TextColor3 = Color3.fromRGB(255, 90, 70)
+                end
+                return
+            end
+            if selStart[t] == selEnd[t] then
+                if statusLabel then
+                    statusLabel.Text      = "始発駅と終着駅に同じ駅は選べません"
+                    statusLabel.TextColor3 = Color3.fromRGB(255, 90, 70)
+                end
+                return
+            end
+            evtStart:FireServer(t, selStart[t], selEnd[t])
+            if statusLabel then
+                statusLabel.Text = t .. "番線 自動運行開始（"
+                    .. STATION_NAMES[selStart[t]] .. "〜" .. STATION_NAMES[selEnd[t]] .. "）"
+                statusLabel.TextColor3 = Color3.fromRGB(100, 210, 130)
+            end
+        end))
+
+        table.insert(trackConns, stopBtn.Activated:Connect(function()
+            evtStop:FireServer(t)
+            if statusLabel then
+                statusLabel.Text      = t .. "番線の自動運行を停止します"
+                statusLabel.TextColor3 = Color3.fromRGB(255, 195, 60)
+            end
+        end))
+    end
+
+    -- タブクリック
+    for t = 1, 4 do
+        local tab = t
+        tabBtns[t].Activated:Connect(function()
+            if curTrack ~= tab then switchTab(tab) end
+        end)
+    end
+
     -- Escape で閉じる
     local escConn
     escConn = UserInputService.InputBegan:Connect(function(inp, handled)
@@ -428,73 +520,92 @@ local function buildPanel()
         end
     end)
 
-    -- evtTrackOwned を受け取ったら UI を更新
-    local ownedConn
-    ownedConn = evtTrackOwned.OnClientEvent:Connect(function(trackNum, result)
-        myTrack     = trackNum
-        myTrainPres = trackNum ~= nil
-        refreshTrainState()
-        if result == "full" and statusLabel then
-            statusLabel.Text      = "空き線路がありません（他のプレイヤーが使用中）"
-            statusLabel.TextColor3 = Color3.fromRGB(255, 90, 70)
-        end
-    end)
-
-    -- パネルが破棄されたらコネクション解除
     screen.Destroying:Connect(function()
-        if ownedConn then ownedConn:Disconnect() end
+        if escConn then escConn:Disconnect(); escConn = nil end
+        for _, c in ipairs(trackConns) do c:Disconnect() end
+        trackConns = {}
+        trackSpawnBtnRef = nil
+        trackStoreBtnRef = nil
+        trackStartBtnRef = nil
+        trackStopBtnRef  = nil
+        carSpawnBtnRef   = nil
+        carStoreBtnRef   = nil
+        statusLabel      = nil
     end)
 
-    -- evtStatus を受け取ったら自動運行状態を更新
-    local statusConn
-    statusConn = evtStatus.OnClientEvent:Connect(function(trackNum, state, stationName)
-        if trackNum ~= myTrack then return end
-        if state == "stopped" then
-            myAutoOn = false
-        elseif state == "running" or state == "departing" or state == "arrived" then
-            myAutoOn = true
+    -- 初期タブ表示
+    switchTab(curTrack)
+end
+
+-- ============================================================
+-- グローバルイベントハンドラ
+-- ============================================================
+evtOpen.OnClientEvent:Connect(function(statuses, initTrainPresent, initConfigs)
+    for t = 1, 4 do
+        trainPres[t] = initTrainPresent and initTrainPresent[t] or false
+        autoOn[t]    = statuses and statuses[t] or false
+        if initConfigs and initConfigs[t] then
+            if initConfigs[t].startIdx then selStart[t] = initConfigs[t].startIdx end
+            if initConfigs[t].endIdx   then selEnd[t]   = initConfigs[t].endIdx   end
         end
-        refreshAutoBtn()
+    end
+    buildPanel()
+end)
+
+evtStateSync.OnClientEvent:Connect(function(trackNum, hasTrain)
+    trainPres[trackNum] = hasTrain
+    if trackNum ~= curTrack then return end
+    local pres = hasTrain
+    if trackSpawnBtnRef then
+        trackSpawnBtnRef.BackgroundColor3 = pres and Color3.fromRGB(40,48,72)  or Color3.fromRGB(0,120,60)
+        trackSpawnBtnRef.TextColor3       = pres and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)
+    end
+    if trackStoreBtnRef then
+        trackStoreBtnRef.BackgroundColor3 = pres and Color3.fromRGB(155,32,32) or Color3.fromRGB(40,48,72)
+        trackStoreBtnRef.TextColor3       = pres and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)
+    end
+end)
+
+evtStatus.OnClientEvent:Connect(function(trackNum, state, stationName)
+    if state == "stopped" then
+        autoOn[trackNum] = false
+    elseif state == "running" or state == "departing" or state == "arrived" then
+        autoOn[trackNum] = true
+    end
+    if trackNum == curTrack then
+        local aon = autoOn[trackNum]
+        if trackStartBtnRef then
+            trackStartBtnRef.BackgroundColor3 = aon and Color3.fromRGB(40,48,72)   or Color3.fromRGB(0,125,55)
+            trackStartBtnRef.TextColor3       = aon and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)
+        end
+        if trackStopBtnRef then
+            trackStopBtnRef.BackgroundColor3 = aon and Color3.fromRGB(155,24,24) or Color3.fromRGB(40,48,72)
+            trackStopBtnRef.TextColor3       = aon and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)
+        end
+    end
+    if statusLabel then
         local msgs = {
             departing = string.format("%d番線 → %s に向け出発", trackNum, stationName),
             arrived   = string.format("%d番線 → %s に到着（乗降中）", trackNum, stationName),
             stopped   = string.format("%d番線: 自動運行を終了しました", trackNum),
             running   = string.format("%d番線: 自動運行中", trackNum),
         }
-        if statusLabel then
-            statusLabel.Text      = msgs[state] or ""
-            statusLabel.TextColor3 = state == "stopped"
-                and Color3.fromRGB(255, 195, 60) or Color3.fromRGB(100, 210, 130)
+        statusLabel.Text      = msgs[state] or ""
+        statusLabel.TextColor3 = state == "stopped"
+            and Color3.fromRGB(255, 195, 60) or Color3.fromRGB(100, 210, 130)
+    end
+end)
+
+if evtCarState then
+    evtCarState.OnClientEvent:Connect(function(state)
+        carPresent = state
+        if carSpawnBtnRef then
+            carSpawnBtnRef.BackgroundColor3 = carPresent and Color3.fromRGB(40,48,72)   or Color3.fromRGB(0,100,50)
+            carSpawnBtnRef.TextColor3       = carPresent and Color3.fromRGB(90,100,125) or Color3.fromRGB(255,255,255)
+        end
+        if carStoreBtnRef then
+            carStoreBtnRef.BackgroundColor3 = carPresent and Color3.fromRGB(155,32,32) or Color3.fromRGB(40,48,72)
+            carStoreBtnRef.TextColor3       = carPresent and Color3.fromRGB(255,255,255) or Color3.fromRGB(90,100,125)
         end
     end)
-
-    screen.Destroying:Connect(function()
-        if statusConn then statusConn:Disconnect() end
-    end)
 end
-
--- ============================================================
--- イベント受信
--- ============================================================
-evtOpen.OnClientEvent:Connect(function(statuses, playerTrack, initTrainPresent, initConfigs)
-    myTrack     = playerTrack
-    myTrainPres = playerTrack ~= nil and (initTrainPresent and initTrainPresent[playerTrack] or false)
-    myAutoOn    = playerTrack ~= nil and (statuses and statuses[playerTrack] or false)
-    if playerTrack and initConfigs and initConfigs[playerTrack] then
-        local cfg = initConfigs[playerTrack]
-        if cfg.startIdx then selStart = cfg.startIdx end
-        if cfg.endIdx   then selEnd   = cfg.endIdx   end
-    end
-    buildPanel()
-end)
-
-evtStateSync.OnClientEvent:Connect(function(trackNum, hasTrain)
-    if trackNum == myTrack then
-        myTrainPres = hasTrain
-    end
-end)
-
-evtTrackOwned.OnClientEvent:Connect(function(trackNum, result)
-    myTrack     = trackNum
-    myTrainPres = trackNum ~= nil
-end)
