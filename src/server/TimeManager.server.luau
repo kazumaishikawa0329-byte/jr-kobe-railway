@@ -1,4 +1,6 @@
 -- 現実の日本時間（JST）に連動した採光・夜間照明管理 + 手動時刻設定パネル
+-- 「現実に合わせる」モードでは大阪の実際の日の出・日の入り時刻（季節考慮）で
+-- 早朝/朝/昼/夕方/夜 の境界を決定する。
 
 local Lighting          = game:GetService("Lighting")
 local Workspace         = game:GetService("Workspace")
@@ -6,27 +8,87 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local RW_FOLDER = "RailwayTest"
 
+-- 大阪の地理情報
+local OSAKA_LAT  = 34.7     -- 緯度（度）
+local OSAKA_LON  = 135.52   -- 経度（度）
+local JST_OFFSET = 9        -- UTC+9
+
 -- ── JST 現在時刻（小数時間 0〜24）を返す ──────────────────────
 local function getJSTHour()
-    local jstSec = os.time() + 9 * 3600
+    local jstSec = os.time() + JST_OFFSET * 3600
     local h = math.floor(jstSec / 3600) % 24
     local m = math.floor(jstSec / 60)   % 60
     local s = jstSec % 60
     return h + m / 60 + s / 3600
 end
 
--- ── 時間帯判定 ────────────────────────────────────────────────
-local function getPeriod(h)
-    if     h >= 5.5  and h <  6.5  then return "dawn"
-    elseif h >= 6.5  and h < 10.0  then return "morning"
-    elseif h >= 10.0 and h < 16.0  then return "noon"
-    elseif h >= 16.0 and h < 19.0  then return "evening"
-    else                                 return "night"
+-- ── 年内通し番号（1〜366）を返す ───────────────────────────────
+local function getDayOfYear()
+    local jstSec        = os.time() + JST_OFFSET * 3600
+    local daysSince1970 = math.floor(jstSec / 86400)
+    local year = 1970
+    local d    = daysSince1970
+    while true do
+        local isLeap     = (year % 4 == 0) and (year % 100 ~= 0 or year % 400 == 0)
+        local daysInYear = isLeap and 366 or 365
+        if d < daysInYear then break end
+        d    = d - daysInYear
+        year = year + 1
+    end
+    return d + 1  -- 1-indexed（1 = 1月1日）
+end
+
+-- ── 大阪の日の出・日の入り時刻（JST 小数時間）を天文計算 ──────
+-- 精度: 実際の時刻との誤差は最大±数分（ゲーム用途では十分）
+local function getOsakaSunTimes()
+    local doy = getDayOfYear()
+
+    -- 太陽赤緯（度）: 近似式
+    local decl = -23.45 * math.cos(math.rad(360 / 365 * (doy + 10)))
+
+    -- 日の出・日の入り時角（度）
+    local cosH = -math.tan(math.rad(OSAKA_LAT)) * math.tan(math.rad(decl))
+    cosH       = math.max(-1, math.min(1, cosH))   -- 極夜・白夜対策
+    local H    = math.deg(math.acos(cosH))
+
+    -- 均時差（分）: Spencer (1971) 近似
+    local B   = math.rad(360 / 365 * (doy - 81))
+    local EoT = 9.87 * math.sin(2 * B) - 7.53 * math.cos(B) - 1.5 * math.sin(B)
+
+    -- 太陽正午（JST）= 12h − 経度補正 − 均時差
+    local lonCorrH    = (OSAKA_LON - JST_OFFSET * 15) / 15   -- 大阪 135.52°、JST基準 135°
+    local solarNoonJST = 12 - lonCorrH - EoT / 60
+
+    -- 日の出・日の入り（JST）
+    local sunrise = solarNoonJST - H / 15
+    local sunset  = solarNoonJST + H / 15
+
+    return sunrise, sunset
+end
+
+-- ── 時間帯判定（実際の日の出・日の入りを基準に設定）──────────
+-- 早朝 (dawn)    : 日の出 −30分  ～  日の出 +30分
+-- 朝   (morning) : 日の出 +30分  ～  日の出 +2.5時間
+-- 昼   (noon)    : 日の出 +2.5時間  ～  日の入り −2.5時間
+-- 夕方 (evening) : 日の入り −2.5時間  ～  日の入り +30分
+-- 夜   (night)   : それ以外
+local function getPeriodFromSun(h, sunrise, sunset)
+    local dawnStart    = sunrise - 0.5
+    local morningStart = sunrise + 0.5
+    local noonStart    = sunrise + 2.5
+    local eveningStart = sunset  - 2.5
+    local nightStart   = sunset  + 0.5
+
+    if     h >= dawnStart    and h < morningStart then return "dawn"
+    elseif h >= morningStart and h < noonStart    then return "morning"
+    elseif h >= noonStart    and h < eveningStart then return "noon"
+    elseif h >= eveningStart and h < nightStart   then return "evening"
+    else                                               return "night"
     end
 end
 
 -- ── 時間帯別ライティング設定 ─────────────────────────────────
--- ClockTime: 手動切替時に使う代表時刻（太陽位置を合わせるため）
+-- ClockTime は手動切替時の代表時刻（実時間モードでは実JST時刻を使用）
 local PERIOD_CFG = {
     dawn = {
         ClockTime=6.0,
@@ -63,7 +125,6 @@ local PERIOD_CFG = {
 -- ── 夜間照明トグル ────────────────────────────────────────────
 local nightLightsState = nil
 
--- 他スクリプトが夜間状態を取得できるよう BoolValue を公開
 local nightStatValue = Instance.new("BoolValue")
 nightStatValue.Name   = "NightLightsOn"
 nightStatValue.Value  = false
@@ -84,20 +145,34 @@ local function toggleNightLights(enable)
 end
 
 -- ── ライティング適用 ──────────────────────────────────────────
-Lighting.GeographicLatitude = 34.7   -- 大阪の緯度
+Lighting.GeographicLatitude = OSAKA_LAT
 
 local prevPeriod   = nil
-local timeOverride = nil   -- nil=実時間モード / string=手動設定中
+local timeOverride = nil   -- nil = 実時間モード / string = 手動設定中
 
 local function applyLighting()
     local h      = getJSTHour()
-    local period = timeOverride or getPeriod(h)
+    local period
 
-    -- 手動設定中は時間帯の代表時刻で太陽位置を固定、実時間モードは実時刻
     if timeOverride then
+        -- 手動設定: 固定代表時刻で太陽位置を固定
+        period             = timeOverride
         Lighting.ClockTime = PERIOD_CFG[timeOverride].ClockTime
     else
-        Lighting.ClockTime = h
+        -- 実時間モード: 大阪の季節を考慮した日の出・日の入りで時間帯を判定
+        local sunrise, sunset = getOsakaSunTimes()
+        period             = getPeriodFromSun(h, sunrise, sunset)
+        Lighting.ClockTime = h   -- 実際のJST時刻で太陽位置を反映
+
+        if prevPeriod ~= period then
+            -- 時間帯変化時に季節情報を出力
+            print(string.format(
+                "[TimeManager] 日の出 %02d:%02d / 日の入り %02d:%02d (大阪, 第%d日)",
+                math.floor(sunrise), math.floor((sunrise % 1) * 60),
+                math.floor(sunset),  math.floor((sunset  % 1) * 60),
+                getDayOfYear()
+            ))
+        end
     end
 
     if period ~= prevPeriod then
@@ -130,7 +205,7 @@ timeCtrl.Event:Connect(function(periodId)
     elseif PERIOD_CFG[periodId] then
         timeOverride = periodId
     end
-    prevPeriod = nil
+    prevPeriod = nil   -- 強制再適用
     applyLighting()
 end)
 

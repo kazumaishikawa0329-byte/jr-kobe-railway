@@ -22,6 +22,9 @@ local CAR_HALF_Z = 12.5
 local CAR_FLOOR  = 1.5
 local CAR_TOP    = 8.5
 
+-- ドア音の聴こえる最大距離（studs）
+local DOOR_SOUND_RANGE = 70
+
 local function getTrackNum(seatPart)
     local car   = seatPart.Parent
     local train = car and car.Parent
@@ -128,14 +131,14 @@ local function makeSound(id, volume, looped)
     return s
 end
 
-local sndDoorOpen  = makeSound("88183508778438",   0.8, false)  -- ドア開放音
-local sndDoorClose = makeSound("89298627645193",   0.8, false)  -- ドア閉鎖音
-local sndMotor     = makeSound("140634290299044",   0.7, true)   -- 電動機音
-local sndBrake     = makeSound("110384127808149",   0.6, false)  -- ブレーキ音
+local sndDoorOpen  = makeSound("88183508778438",  0.8, false)  -- ドア開放音
+local sndDoorClose = makeSound("89298627645193",  0.8, false)  -- ドア閉鎖音
+local sndMotor     = makeSound("140634290299044", 0.7, true)   -- 電動機音（加速中）
+local sndCoast     = makeSound("85942302146892",  0.6, true)   -- 惰行音（定速走行中）
+local sndBrake     = makeSound("110384127808149", 0.6, false)  -- ブレーキ音
 sndBrake.PlaybackSpeed = 5
 
 local prevSpeed = 0
-local motorRunning = false
 
 -- ============================================================
 -- 運転席 GUI
@@ -496,37 +499,66 @@ evtDoorState.OnClientEvent:Connect(function(trackNum, isOpen)
         end
         updateAccelBtn(isOpen)
     end
-    -- 開閉音を再生（最初の3秒をスキップ）
-    if isOpen then
-        sndDoorOpen.TimePosition = 2
-        sndDoorOpen:Play()
-    else
-        sndDoorClose.TimePosition = 2
-        sndDoorClose:Play()
+    -- 近接時のみドア音を再生（DOOR_SOUND_RANGE 以内）
+    local rwFolder = workspace:FindFirstChild("RailwayTest")
+    local train    = rwFolder and rwFolder:FindFirstChild("Train_" .. trackNum)
+    local char     = player.Character
+    local root     = char and char:FindFirstChild("HumanoidRootPart")
+    if train and root then
+        local minDist = math.huge
+        for i = 1, 4 do
+            local car  = train:FindFirstChild("Car" .. i)
+            local body = car and car:FindFirstChild("Body")
+            if body then
+                local d = (root.Position - body.Position).Magnitude
+                if d < minDist then minDist = d end
+            end
+        end
+        if minDist <= DOOR_SOUND_RANGE then
+            if isOpen then
+                sndDoorOpen.TimePosition = 2
+                sndDoorOpen:Play()
+            else
+                sndDoorClose.TimePosition = 2
+                sndDoorClose:Play()
+            end
+        end
     end
 end)
 
 -- ============================================================
--- 速度更新（速度計 + 電動機音）
+-- 速度更新（速度計 + 走行音切り替え）
+-- 加速中  → 電動機音（sndMotor）
+-- 定速/惰行 → 惰行音（sndCoast）
+-- 停車中  → 両方停止
 -- ============================================================
 evtSpeedUpd.OnClientEvent:Connect(function(trackNum, speed)
     if trackNum ~= currentTrackNum then return end
     speedNum.Text = tostring(speed)
 
-    -- 電動機音（着席中のみ）
     if currentSeatPart then
+        local t       = speed / 130
+        local isAccel = speed > prevSpeed + 0.5   -- 0.5 km/h 以上増加 → 加速と判定
+
         if speed > 0 then
-            local t       = speed / 130
-            local baseVol = 0.1 + t * 0.7
-            -- 加速中（前回より 0.5 km/h 以上増加）→ フル音量、定速/減速 → 1/6
-            sndMotor.Volume        = (speed > prevSpeed + 0.5) and baseVol or (baseVol / 6)
-            sndMotor.PlaybackSpeed = 0.35 + t * 1.65
-            if not sndMotor.IsPlaying then sndMotor:Play() end
+            if isAccel then
+                -- 加速中: 電動機音
+                sndMotor.Volume        = 0.1 + t * 0.7
+                sndMotor.PlaybackSpeed = 0.35 + t * 1.65
+                if not sndMotor.IsPlaying then sndMotor:Play() end
+                if sndCoast.IsPlaying   then sndCoast:Stop()  end
+            else
+                -- 定速走行・惰行: 惰行音
+                sndCoast.Volume        = 0.15 + t * 0.55
+                sndCoast.PlaybackSpeed = 0.5  + t * 0.8
+                if not sndCoast.IsPlaying then sndCoast:Play() end
+                if sndMotor.IsPlaying   then sndMotor:Stop()  end
+            end
         else
+            -- 停車中: 両方停止
             if sndMotor.IsPlaying then sndMotor:Stop() end
+            if sndCoast.IsPlaying then sndCoast:Stop() end
         end
-        -- 加速中: ピッチ上昇音（prevSpeed より大幅増加時）
-        -- 減速中: ブレーキ音は急ブレーキボタンで再生済み
     end
     prevSpeed = speed
 end)
@@ -603,8 +635,9 @@ local function onCharacterAdded(character)
             setMobileControls(false)
             cabGui.Enabled = true
         elseif not isSeated then
-            -- 電動機音を止める
+            -- 走行音を止める
             if sndMotor.IsPlaying then sndMotor:Stop() end
+            if sndCoast.IsPlaying then sndCoast:Stop() end
 
             camYaw     = 0
             camPitch   = math.rad(-7)

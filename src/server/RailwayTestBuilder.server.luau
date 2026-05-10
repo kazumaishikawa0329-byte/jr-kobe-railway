@@ -596,9 +596,15 @@ end
 local CROSSING_Z_1 = math.floor((STATIONS[5].z + STATIONS[6].z) / 2)   -- ≈ -8270
 -- 踏切 2: 塚本〜尼崎
 local CROSSING_Z_2 = math.floor((STATIONS[2].z + STATIONS[3].z) / 2)   -- = 30
+-- 踏切 3: 芦屋〜西芦屋
+local CROSSING_Z_3 = math.floor((STATIONS[6].z + STATIONS[7].z) / 2)   -- = -11370
+-- 踏切 4: 加古川〜加古川商店街
+local CROSSING_Z_4 = math.floor((STATIONS[18].z + STATIONS[19].z) / 2) -- = -48020
 
-buildRailwayCrossing("RailwayCrossing_TachibaraAshiya",  CROSSING_Z_1)
-buildRailwayCrossing("RailwayCrossing_TsukamoAmagasaki", CROSSING_Z_2)
+buildRailwayCrossing("RailwayCrossing_TachibaraAshiya",    CROSSING_Z_1)
+buildRailwayCrossing("RailwayCrossing_TsukamoAmagasaki",   CROSSING_Z_2)
+buildRailwayCrossing("RailwayCrossing_AshiyaNishiAshiya",  CROSSING_Z_3)
+buildRailwayCrossing("RailwayCrossing_KakogawaShotengai",  CROSSING_Z_4)
 
 -- ============================================================
 -- 沿線地盤 & 風景の生成
