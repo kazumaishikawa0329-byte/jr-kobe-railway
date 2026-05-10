@@ -17,7 +17,7 @@ local SOUND_VOL   = 4.0
 
 local GATE_DOWN_INFO = TweenInfo.new(3.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local GATE_UP_INFO   = TweenInfo.new(3.0, Enum.EasingStyle.Quad, Enum.EasingDirection.In)
-local GATE_HALF_LEN  = 4.25
+local GATE_HALF_LEN  = 10.25  -- (20+0.5)/2
 local GATE_PIVOT_Y   = 3.8
 
 -- ── RailwayTest 生成待機 ──────────────────────────────────────

@@ -347,8 +347,8 @@ end
 -- 踏切（modelName を指定して複数設置可能）
 -- 遮断機は「上げた状態」で初期配置し、CrossingManager が動作に応じて制御する
 -- ============================================================
-local CROSSING_ROAD_W = 8
-local CROSSING_HALF   = (CROSSING_ROAD_W + 0.5) / 2   -- 腕木の半長 = 4.25 stud
+local CROSSING_ROAD_W = 20  -- 4輪車すれ違い対応（元値 8 の 2.5倍）
+local CROSSING_HALF   = (CROSSING_ROAD_W + 0.5) / 2   -- 腕木の半長 = 10.25 stud
 local CROSSING_PIVOT_Y = 3.8                            -- 腕木の回転軸 Y 座標
 
 local function buildRailwayCrossing(modelName, z)
@@ -480,8 +480,8 @@ local function buildRailwayCrossing(modelName, z)
             raisedCF(0),
             C_RED)
 
-        -- 白ストライプ（4本、腕木に重ねる）
-        for i, d in ipairs({ -3.0, -1.0, 1.0, 3.0 }) do
+        -- 白ストライプ（8本、腕木に重ねる）
+        for i, d in ipairs({ -8.75, -6.25, -3.75, -1.25, 1.25, 3.75, 6.25, 8.75 }) do
             mkCF(model, "Gate_" .. sfxG .. "_S" .. i,
                 Vector3.new(0.26, 0.46, 1.0),
                 raisedCF(d),
