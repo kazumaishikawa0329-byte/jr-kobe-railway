@@ -319,8 +319,8 @@ local function buildCar(parent, idx, cz, hasFront, hasRear, doorList)
         lp.Transparency = 0.45
         local pl = Instance.new("PointLight")
         pl.Name       = "NightLight"
-        pl.Brightness = 3
-        pl.Range      = 20
+        pl.Brightness = 0.8
+        pl.Range      = 7
         pl.Color      = Color3.fromRGB(255, 248, 215)
         pl.Enabled    = false
         pl.Parent     = lp
@@ -476,9 +476,6 @@ local function setDoorState(trackNum, isOpen)
             if desc:IsA("Seat") and desc.Name == "DriverSeat" then
                 if isOpen then
                     desc.Disabled = false
-                elseif not desc.Occupant then
-                    -- 着席中のプレイヤーがいる場合は無効化しない（強制降車防止）
-                    desc.Disabled = true
                 end
             end
         end

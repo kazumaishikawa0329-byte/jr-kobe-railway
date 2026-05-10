@@ -58,22 +58,19 @@ timeout /t 2 >nul
 
 REM =========================
 REM Claude Code
-REM コマンドプロンプト版は起動しない
-REM Claudeアプリを起動し、プロジェクトパスをコピー
+REM PowerShellでプロジェクトフォルダに移動して実行
+REM Claudeアプリ自体は別で開いてOK
 REM =========================
-echo ClaudeアプリのClaude Codeを起動準備
+echo Claude Code 起動（PowerShell）
 
-echo %PROJECT_DIR% | clip
-echo プロジェクトフォルダをクリップボードにコピーしました:
-echo %PROJECT_DIR%
-
-echo Claude 起動
-start "" "shell:AppsFolder\Claude_pzs8sxrjxfjjc!Claude"
-timeout /t 3 >nul
-powershell -NoProfile -Command "$ws = New-Object -ComObject WScript.Shell; $ws.AppActivate('Claude') | Out-Null"
-
-echo Claudeアプリの Code / Claude Code で、プロジェクトフォルダ選択時に Ctrl+V してください。
-
+where claude >nul 2>nul
+if errorlevel 1 (
+    echo claude コマンドが見つかりません。
+    echo Claude Code がインストール済みか、PATHが通っているか確認してください。
+    pause
+) else (
+    start "Claude Code" powershell -NoExit -NoProfile -ExecutionPolicy Bypass -Command "Set-Location -LiteralPath '%PROJECT_DIR%'; claude"
+)
 REM =========================
 REM アプリ起動・前面表示
 REM =========================
