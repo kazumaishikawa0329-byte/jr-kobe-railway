@@ -392,8 +392,17 @@ exitBtn.TextSize         = 14
 exitBtn.Font             = Enum.Font.GothamBold
 exitBtn.Parent           = cabGui
 local exitCorner = Instance.new("UICorner"); exitCorner.CornerRadius = UDim.new(0, 5); exitCorner.Parent = exitBtn
+
+local function updateExitBtn()
+    local canExit = doorIsOpen and prevSpeed == 0
+    exitBtn.Active           = canExit
+    exitBtn.BackgroundColor3 = canExit and Color3.fromRGB(130, 18, 18) or Color3.fromRGB(55, 55, 55)
+    exitBtn.TextColor3       = canExit and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(110, 110, 110)
+    exitBtn.Text             = prevSpeed > 0 and "走行中" or (doorIsOpen and "降車する" or "ドア閉")
+end
+
 exitBtn.MouseButton1Click:Connect(function()
-    if not doorIsOpen then return end  -- ドアが閉まっているときは降車不可
+    if not (doorIsOpen and prevSpeed == 0) then return end
     local char = player.Character
     if not char then return end
     local hum = char:FindFirstChildOfClass("Humanoid")
@@ -498,6 +507,7 @@ evtDoorState.OnClientEvent:Connect(function(trackNum, isOpen)
             doorBtnClose.BackgroundColor3 = Color3.fromRGB(200, 60, 0)
         end
         updateAccelBtn(isOpen)
+        updateExitBtn()
     end
     -- 近接時のみドア音を再生（DOOR_SOUND_RANGE 以内）
     local rwFolder = workspace:FindFirstChild("RailwayTest")
@@ -561,6 +571,7 @@ evtSpeedUpd.OnClientEvent:Connect(function(trackNum, speed)
         end
     end
     prevSpeed = speed
+    updateExitBtn()
 end)
 
 -- ============================================================
@@ -634,6 +645,7 @@ local function onCharacterAdded(character)
             camera.CameraType = Enum.CameraType.Scriptable
             setMobileControls(false)
             cabGui.Enabled = true
+            updateExitBtn()
         elseif not isSeated then
             -- 走行音を止める
             if sndMotor.IsPlaying then sndMotor:Stop() end
