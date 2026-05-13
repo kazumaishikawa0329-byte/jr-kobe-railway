@@ -600,11 +600,14 @@ local CROSSING_Z_2 = math.floor((STATIONS[2].z + STATIONS[3].z) / 2)   -- = 30
 local CROSSING_Z_3 = math.floor((STATIONS[6].z + STATIONS[7].z) / 2)   -- = -11370
 -- 踏切 4: 加古川〜加古川商店街
 local CROSSING_Z_4 = math.floor((STATIONS[18].z + STATIONS[19].z) / 2) -- = -48020
+-- 踏切 5: 大阪〜塚本
+local CROSSING_Z_5 = math.floor((STATIONS[1].z + STATIONS[2].z) / 2)   -- = 3080
 
 buildRailwayCrossing("RailwayCrossing_TachibaraAshiya",    CROSSING_Z_1)
 buildRailwayCrossing("RailwayCrossing_TsukamoAmagasaki",   CROSSING_Z_2)
 buildRailwayCrossing("RailwayCrossing_AshiyaNishiAshiya",  CROSSING_Z_3)
 buildRailwayCrossing("RailwayCrossing_KakogawaShotengai",  CROSSING_Z_4)
+buildRailwayCrossing("RailwayCrossing_OsakaTsukamoto",     CROSSING_Z_5)
 
 -- ============================================================
 -- 沿線地盤 & 風景の生成

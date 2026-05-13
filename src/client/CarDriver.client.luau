@@ -18,6 +18,10 @@ local throttle = 0
 local steer    = 0
 local hudGui   = nil
 
+-- forward declarations (showHUD が参照するため事前宣言)
+local sendInput
+local stopDriving
+
 -- ============================================================
 -- HUD（タッチD-pad + キーボードヒント）
 -- ============================================================
@@ -144,7 +148,7 @@ local function startDriving()
     showHUD()
 end
 
-local function stopDriving()
+stopDriving = function()
     if not driving then return end
     driving  = false
     throttle = 0
@@ -152,7 +156,7 @@ local function stopDriving()
     hideHUD()
 end
 
-local function sendInput()
+sendInput = function()
     if not driving then return end
     evtDrive:FireServer(throttle, steer)
 end
